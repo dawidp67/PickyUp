@@ -1,3 +1,5 @@
+//Game
+
 import Foundation
 import FirebaseFirestore
 import CoreLocation
@@ -18,15 +20,22 @@ struct Game: Codable, Identifiable, Hashable {
     var creatorId: String
     var creatorName: String
     var sportType: SportType
+    var customSportName: String?  // NEW: For "Other" sport type
     var location: GameLocation
     var dateTime: Date
-    var duration: Int // in minutes
+    var duration: Int
     var description: String?
     var status: GameStatus
     var createdAt: Date
     var updatedAt: Date
     
-    // Computed properties
+    var displaySportName: String {
+        if sportType == .other, let customName = customSportName {
+            return customName
+        }
+        return sportType.rawValue
+    }
+    
     var isUpcoming: Bool {
         dateTime > Date()
     }

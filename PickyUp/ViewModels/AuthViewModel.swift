@@ -1,3 +1,5 @@
+//AuthViewModel
+
 import Foundation
 import FirebaseAuth
 
@@ -25,7 +27,7 @@ class AuthViewModel: ObservableObject {
         authStateHandle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             guard let self = self else { return }
             
-            Task {
+            Task { @MainActor in
                 if let user = user {
                     self.isAuthenticated = true
                     await self.fetchCurrentUser(userId: user.uid)
@@ -33,6 +35,7 @@ class AuthViewModel: ObservableObject {
                     self.isAuthenticated = false
                     self.currentUser = nil
                 }
+                self.isLoading = false
             }
         }
     }
@@ -86,6 +89,23 @@ class AuthViewModel: ObservableObject {
         }
         
         isLoading = false
+    }
+    
+    func updateEmail(newEmail: String) async throws {
+        try await authService.updateEmail(newEmail: newEmail)
+        if let userId = currentUser?.id {
+            await fetchCurrentUser(userId: userId)
+        }
+    }
+    
+    func updatePassword(newPassword: String) async throws {
+        try await authService.updatePassword(newPassword: newPassword)
+    }
+    
+    func updateDisplayName(newDisplayName: String) async throws {
+        guard let userId = currentUser?.id else { return }
+        try await authService.updateDisplayName(userId: userId, newDisplayName: newDisplayName)
+        await fetchCurrentUser(userId: userId)
     }
     
     private func fetchCurrentUser(userId: String) async {

@@ -20,7 +20,6 @@ struct SignUpView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                // Header
                 VStack(spacing: 8) {
                     Image(systemName: "person.badge.plus")
                         .font(.system(size: 60))
@@ -33,13 +32,13 @@ struct SignUpView: View {
                 .padding(.top, 40)
                 .padding(.bottom, 20)
                 
-                // Sign up form
                 VStack(spacing: 16) {
                     TextField("Display Name", text: $displayName)
                         .textContentType(.name)
                         .padding()
                         .background(Color(.systemGray6))
                         .cornerRadius(10)
+                        .autocorrectionDisabled()
                     
                     TextField("Email", text: $email)
                         .textContentType(.emailAddress)
@@ -48,6 +47,7 @@ struct SignUpView: View {
                         .padding()
                         .background(Color(.systemGray6))
                         .cornerRadius(10)
+                        .autocorrectionDisabled()
                     
                     SecureField("Password", text: $password)
                         .textContentType(.newPassword)
@@ -61,7 +61,6 @@ struct SignUpView: View {
                         .background(Color(.systemGray6))
                         .cornerRadius(10)
                     
-                    // Password requirements
                     if !password.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             PasswordRequirement(
@@ -73,24 +72,27 @@ struct SignUpView: View {
                         .padding(.horizontal, 4)
                     }
                     
-                    // Error message
                     if let error = localError ?? authViewModel.errorMessage {
                         Text(error)
                             .font(.caption)
                             .foregroundStyle(.red)
                             .multilineTextAlignment(.center)
+                            .padding(.horizontal)
                     }
                     
-                    // Sign up button
                     Button {
+                        hideKeyboard()
                         validateAndSignUp()
                     } label: {
                         if authViewModel.isLoading {
                             ProgressView()
                                 .tint(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 20)
                         } else {
                             Text("Sign Up")
                                 .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity)
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -106,40 +108,44 @@ struct SignUpView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            authViewModel.clearError()
+            localError = nil
+        }
     }
     
     var isFormValid: Bool {
-        !displayName.isEmpty &&
-        !email.isEmpty &&
-        !password.isEmpty &&
-        !confirmPassword.isEmpty &&
-        password.count >= 6
+        !displayName.trimmingCharacters(in: .whitespaces).isEmpty &&
+        !email.trimmingCharacters(in: .whitespaces).isEmpty &&
+        password.count >= 6 &&
+        !confirmPassword.isEmpty
     }
     
     func validateAndSignUp() {
-        // Clear previous errors
         localError = nil
         authViewModel.clearError()
         
-        // Validate passwords match
         guard password == confirmPassword else {
             localError = "Passwords do not match"
             return
         }
         
-        // Validate password length
         guard password.count >= 6 else {
             localError = "Password must be at least 6 characters"
             return
         }
         
-        // Attempt sign up
         Task {
-            await authViewModel.signUp(email: email, password: password, displayName: displayName)
+            await authViewModel.signUp(
+                email: email.trimmingCharacters(in: .whitespaces),
+                password: password,
+                displayName: displayName.trimmingCharacters(in: .whitespaces)
+            )
             
-            // If successful, dismiss
-            if authViewModel.isAuthenticated {
-                dismiss()
+            await MainActor.run {
+                if authViewModel.isAuthenticated && authViewModel.errorMessage == nil {
+                    dismiss()
+                }
             }
         }
     }
@@ -156,12 +162,5 @@ struct PasswordRequirement: View {
             Text(text)
                 .foregroundStyle(isMet ? .primary : .secondary)
         }
-    }
-}
-
-#Preview {
-    NavigationStack {
-        SignUpView()
-            .environmentObject(AuthViewModel())
     }
 }

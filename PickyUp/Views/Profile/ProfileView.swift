@@ -4,20 +4,19 @@ struct ProfileView: View {
     @EnvironmentObject var authViewModel: AuthViewModel
     @EnvironmentObject var gameViewModel: GameViewModel
     @StateObject private var profileViewModel = ProfileViewModel()
+    @State private var showingEditProfile = false
     
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
-                    // Profile Header
                     VStack(spacing: 12) {
                         ZStack {
                             Circle()
                                 .fill(Color.blue.gradient)
                                 .frame(width: 100, height: 100)
                             
-                            Text(authViewModel.currentUser?.initials ?? "?")
-                                .font(.system(size: 40, weight: .semibold))
+                            Text(authViewModel.currentUser?.initials ?? "?").font(.system(size: 40, weight: .semibold))
                                 .foregroundStyle(.white)
                         }
                         
@@ -29,10 +28,18 @@ struct ProfileView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
+                        
+                        Button {
+                            showingEditProfile = true
+                        } label: {
+                            Text("Edit Profile")
+                                .font(.subheadline)
+                                .foregroundStyle(.blue)
+                        }
+                        .padding(.top, 4)
                     }
                     .padding(.top)
                     
-                    // Stats
                     HStack(spacing: 40) {
                         VStack {
                             Text("\(gameViewModel.userCreatedGames.count)")
@@ -57,7 +64,6 @@ struct ProfileView: View {
                     .cornerRadius(12)
                     .padding(.horizontal)
                     
-                    // My Games Section
                     if !gameViewModel.userCreatedGames.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("My Games")
@@ -76,7 +82,6 @@ struct ProfileView: View {
                         }
                     }
                     
-                    // Attending Games Section
                     if !profileViewModel.attendingGames.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Attending")
@@ -95,7 +100,6 @@ struct ProfileView: View {
                         }
                     }
                     
-                    // Sign Out Button
                     Button(role: .destructive) {
                         authViewModel.signOut()
                     } label: {
@@ -112,6 +116,10 @@ struct ProfileView: View {
                 .padding(.vertical)
             }
             .navigationTitle("Profile")
+            .sheet(isPresented: $showingEditProfile) {
+                EditProfileView()
+                    .environmentObject(authViewModel)
+            }
             .task {
                 if let userId = authViewModel.currentUser?.id {
                     await gameViewModel.fetchUserCreatedGames(userId: userId)
@@ -126,10 +134,4 @@ struct ProfileView: View {
             }
         }
     }
-}
-
-#Preview {
-    ProfileView()
-        .environmentObject(AuthViewModel())
-        .environmentObject(GameViewModel())
 }

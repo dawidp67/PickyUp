@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreLocation
 
 struct Validators {
     static func isValidEmail(_ email: String) -> Bool {
@@ -15,5 +16,25 @@ struct Validators {
     
     static func isValidPassword(_ password: String) -> Bool {
         return password.count >= 6
+    }
+}
+
+class Helpers {
+    static func formatDate(_ date: Date, style: DateFormatter.Style = .medium) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = style
+        return formatter.string(from: date)
+    }
+    
+    static func formatTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+    
+    static func calculateDistance(from: (lat: Double, lon: Double), to: (lat: Double, lon: Double)) -> Double {
+        let fromLocation = CLLocation(latitude: from.lat, longitude: from.lon)
+        let toLocation = CLLocation(latitude: to.lat, longitude: to.lon)
+        return fromLocation.distance(from: toLocation)
     }
 }

@@ -12,32 +12,29 @@ struct ForgotPasswordView: View {
     @EnvironmentObject var authViewModel: AuthViewModel
     
     @State private var email = ""
-    @State private var showingSuccess = false
+    @State private var showingSuccessAlert = false
     
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
-                // Icon
-                Image(systemName: "envelope.badge")
-                    .font(.system(size: 60))
-                    .foregroundStyle(.blue)
-                    .padding(.top, 60)
-                
-                // Title and description
                 VStack(spacing: 8) {
+                    Image(systemName: "lock.rotation")
+                        .font(.system(size: 60))
+                        .foregroundStyle(.blue)
+                    
                     Text("Reset Password")
-                        .font(.title)
+                        .font(.title2)
                         .fontWeight(.bold)
                     
-                    Text("Enter your email address and we'll send you a link to reset your password")
+                    Text("Enter your email address and we'll send you instructions to reset your password.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
                 }
+                .padding(.top, 40)
                 .padding(.bottom, 20)
                 
-                // Email field
                 VStack(spacing: 16) {
                     TextField("Email", text: $email)
                         .textContentType(.emailAddress)
@@ -46,8 +43,8 @@ struct ForgotPasswordView: View {
                         .padding()
                         .background(Color(.systemGray6))
                         .cornerRadius(10)
+                        .autocorrectionDisabled()
                     
-                    // Error message
                     if let error = authViewModel.errorMessage {
                         Text(error)
                             .font(.caption)
@@ -55,12 +52,12 @@ struct ForgotPasswordView: View {
                             .multilineTextAlignment(.center)
                     }
                     
-                    // Send button
                     Button {
                         Task {
-                            await authViewModel.resetPassword(email: email)
+                            await authViewModel.resetPassword(email: email.trimmingCharacters(in: .whitespaces))
+                            
                             if authViewModel.errorMessage == nil {
-                                showingSuccess = true
+                                showingSuccessAlert = true
                             }
                         }
                     } label: {
@@ -77,7 +74,7 @@ struct ForgotPasswordView: View {
                     .background(email.isEmpty ? Color.gray : Color.blue)
                     .foregroundStyle(.white)
                     .cornerRadius(10)
-                    .disabled(email.isEmpty || authViewModel.isLoading)
+                    .disabled(authViewModel.isLoading || email.isEmpty)
                 }
                 .padding(.horizontal, 32)
                 
@@ -91,18 +88,13 @@ struct ForgotPasswordView: View {
                     }
                 }
             }
-            .alert("Check Your Email", isPresented: $showingSuccess) {
+            .alert("Check Your Email", isPresented: $showingSuccessAlert) {
                 Button("OK") {
                     dismiss()
                 }
             } message: {
-                Text("We've sent a password reset link to \(email). Please check your email.")
+                Text("We've sent password reset instructions to \(email)")
             }
         }
     }
-}
-
-#Preview {
-    ForgotPasswordView()
-        .environmentObject(AuthViewModel())
 }

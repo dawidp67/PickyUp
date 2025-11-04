@@ -1,3 +1,5 @@
+//ProfileViewModel
+
 import Foundation
 import SwiftUI
 
@@ -15,23 +17,20 @@ class ProfileViewModel: ObservableObject {
         errorMessage = nil
         
         do {
-            // Fetch user's RSVPs
             let rsvps = try await rsvpService.fetchUserRSVPs(userId: userId)
             
-            // Filter for accepted/going RSVPs
             let gameIds = rsvps
                 .filter { $0.status == .going }
                 .compactMap { $0.gameId }
             
-            // Fetch the actual games
             var games: [Game] = []
             for gameId in gameIds {
-                if let game = try? await gameService.fetchGame(gameId: gameId) {
+                if let game = try? await gameService.fetchGame(gameId: gameId), game.isUpcoming {
                     games.append(game)
                 }
             }
             
-            attendingGames = games
+            attendingGames = games.sorted { $0.dateTime < $1.dateTime }
         } catch {
             errorMessage = error.localizedDescription
             print("Error fetching attending games: \(error)")

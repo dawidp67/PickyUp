@@ -2,20 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>We need your location to show nearby pickup games on the map.</string>
 	<key>API_KEY</key>
 	<string>AIzaSyBrAR5x2OZgFMM7xNvy_1Y6_npDuV4wZco</string>
-	<key>GCM_SENDER_ID</key>
-	<string>672818547703</string>
-	<key>PLIST_VERSION</key>
-	<string>1</string>
 	<key>BUNDLE_ID</key>
 	<string>EG.PickyUp</string>
-	<key>PROJECT_ID</key>
-	<string>eg-pickyup</string>
-	<key>STORAGE_BUCKET</key>
-	<string>eg-pickyup.firebasestorage.app</string>
+	<key>GCM_SENDER_ID</key>
+	<string>672818547703</string>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:672818547703:ios:963c91054a552b80f17cf2</string>
 	<key>IS_ADS_ENABLED</key>
 	<false/>
 	<key>IS_ANALYTICS_ENABLED</key>
@@ -26,9 +20,11 @@
 	<true/>
 	<key>IS_SIGNIN_ENABLED</key>
 	<true/>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>We use your location to help you discover games near you.</string>
-	<key>GOOGLE_APP_ID</key>
-	<string>1:672818547703:ios:963c91054a552b80f17cf2</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>PROJECT_ID</key>
+	<string>eg-pickyup</string>
+	<key>STORAGE_BUCKET</key>
+	<string>eg-pickyup.firebasestorage.app</string>
 </dict>
 </plist>

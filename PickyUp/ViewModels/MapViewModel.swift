@@ -1,3 +1,5 @@
+//MapViewModel
+
 import Foundation
 import MapKit
 
@@ -8,6 +10,7 @@ class MapViewModel: ObservableObject {
         span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
     )
     @Published var selectedGame: Game?
+    @Published var showMapFullScreen = false
     
     private let locationService = LocationService.shared
     

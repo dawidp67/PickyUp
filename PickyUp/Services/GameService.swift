@@ -1,3 +1,5 @@
+//GameService
+
 import Foundation
 import FirebaseFirestore
 
@@ -77,5 +79,17 @@ class GameService {
                 let games = documents.compactMap { try? $0.data(as: Game.self) }
                 completion(games)
             }
+    }
+    
+    func fetchGameAttendeeCount(gameId: String) async throws -> (going: Int, maybe: Int) {
+        let snapshot = try await db.collection("rsvps")
+            .whereField("gameId", isEqualTo: gameId)
+            .getDocuments()
+        
+        let rsvps = try snapshot.documents.compactMap { try $0.data(as: RSVP.self) }
+        let going = rsvps.filter { $0.status == .going }.count
+        let maybe = rsvps.filter { $0.status == .maybe }.count
+        
+        return (going, maybe)
     }
 }

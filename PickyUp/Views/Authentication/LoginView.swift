@@ -17,7 +17,6 @@ struct LoginView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
-                // Logo/Title
                 VStack(spacing: 8) {
                     Image(systemName: "figure.basketball")
                         .font(.system(size: 80))
@@ -31,7 +30,6 @@ struct LoginView: View {
                 .padding(.top, 60)
                 .padding(.bottom, 40)
                 
-                // Login Form
                 VStack(spacing: 16) {
                     TextField("Email", text: $email)
                         .textContentType(.emailAddress)
@@ -40,6 +38,7 @@ struct LoginView: View {
                         .padding()
                         .background(Color(.systemGray6))
                         .cornerRadius(10)
+                        .autocorrectionDisabled()
                     
                     SecureField("Password", text: $password)
                         .textContentType(.password)
@@ -47,36 +46,38 @@ struct LoginView: View {
                         .background(Color(.systemGray6))
                         .cornerRadius(10)
                     
-                    // Error message
                     if let error = authViewModel.errorMessage {
                         Text(error)
                             .font(.caption)
                             .foregroundStyle(.red)
                             .multilineTextAlignment(.center)
+                            .padding(.horizontal)
                     }
                     
-                    // Login button
                     Button {
+                        hideKeyboard()
                         Task {
-                            await authViewModel.signIn(email: email, password: password)
+                            await authViewModel.signIn(email: email.trimmingCharacters(in: .whitespaces), password: password)
                         }
                     } label: {
                         if authViewModel.isLoading {
                             ProgressView()
                                 .tint(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 20)
                         } else {
                             Text("Log In")
                                 .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity)
                         }
                     }
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.blue)
+                    .background(email.isEmpty || password.isEmpty ? Color.gray : Color.blue)
                     .foregroundStyle(.white)
                     .cornerRadius(10)
                     .disabled(authViewModel.isLoading || email.isEmpty || password.isEmpty)
                     
-                    // Forgot password
                     Button {
                         showingForgotPassword = true
                     } label: {
@@ -89,7 +90,6 @@ struct LoginView: View {
                 
                 Spacer()
                 
-                // Sign up link
                 HStack {
                     Text("Don't have an account?")
                         .foregroundStyle(.secondary)
@@ -106,11 +106,9 @@ struct LoginView: View {
             .sheet(isPresented: $showingForgotPassword) {
                 ForgotPasswordView()
             }
+            .onAppear {
+                authViewModel.clearError()
+            }
         }
     }
-}
-
-#Preview {
-    LoginView()
-        .environmentObject(AuthViewModel())
 }

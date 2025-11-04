@@ -10,16 +10,24 @@ import SwiftUI
 struct CustomButton: View {
     let title: String
     let action: () -> Void
+    var isLoading: Bool = false
+    var isDisabled: Bool = false
     
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .foregroundColor(.white)
-                .fontWeight(.bold)
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(Constants.Colors.primaryColor)
-                .cornerRadius(Constants.UI.cornerRadius)
+            if isLoading {
+                ProgressView()
+                    .tint(.white)
+            } else {
+                Text(title)
+                    .fontWeight(.semibold)
+            }
         }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(isDisabled ? Color.gray : Color.blue)
+        .foregroundStyle(.white)
+        .cornerRadius(10)
+        .disabled(isDisabled || isLoading)
     }
 }

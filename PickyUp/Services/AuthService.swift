@@ -1,3 +1,5 @@
+//AuthService
+
 import Foundation
 import FirebaseAuth
 import FirebaseFirestore
@@ -14,27 +16,35 @@ class AuthService {
     }
     
     func signUp(email: String, password: String, displayName: String) async throws -> User {
-        let result = try await auth.createUser(withEmail: email, password: password)
-        
-        let newUser = User(
-            id: result.user.uid,
-            email: email,
-            displayName: displayName,
-            profilePhotoURL: nil,
-            createdAt: Date()
-        )
-        
-        try await db.collection("users").document(result.user.uid).setData([
-            "email": email,
-            "displayName": displayName,
-            "createdAt": Timestamp(date: Date())
-        ])
-        
-        return newUser
+        do {
+            let result = try await auth.createUser(withEmail: email, password: password)
+            
+            let newUser = User(
+                id: result.user.uid,
+                email: email,
+                displayName: displayName,
+                profilePhotoURL: nil,
+                createdAt: Date()
+            )
+            
+            try await db.collection("users").document(result.user.uid).setData([
+                "email": email,
+                "displayName": displayName,
+                "createdAt": Timestamp(date: Date())
+            ])
+            
+            return newUser
+        } catch let error as NSError {
+            throw AuthError.from(error)
+        }
     }
     
     func signIn(email: String, password: String) async throws {
-        try await auth.signIn(withEmail: email, password: password)
+        do {
+            try await auth.signIn(withEmail: email, password: password)
+        } catch let error as NSError {
+            throw AuthError.from(error)
+        }
     }
     
     func signOut() throws {
@@ -42,7 +52,44 @@ class AuthService {
     }
     
     func resetPassword(email: String) async throws {
-        try await auth.sendPasswordReset(withEmail: email)
+        do {
+            try await auth.sendPasswordReset(withEmail: email)
+        } catch let error as NSError {
+            throw AuthError.from(error)
+        }
+    }
+    
+    func updateEmail(newEmail: String) async throws {
+        guard let user = auth.currentUser else {
+            throw AuthError.notAuthenticated
+        }
+        
+        do {
+            try await user.updateEmail(to: newEmail)
+            try await db.collection("users").document(user.uid).updateData([
+                "email": newEmail
+            ])
+        } catch let error as NSError {
+            throw AuthError.from(error)
+        }
+    }
+    
+    func updatePassword(newPassword: String) async throws {
+        guard let user = auth.currentUser else {
+            throw AuthError.notAuthenticated
+        }
+        
+        do {
+            try await user.updatePassword(to: newPassword)
+        } catch let error as NSError {
+            throw AuthError.from(error)
+        }
+    }
+    
+    func updateDisplayName(userId: String, newDisplayName: String) async throws {
+        try await db.collection("users").document(userId).updateData([
+            "displayName": newDisplayName
+        ])
     }
     
     func fetchUser(userId: String) async throws -> User {
@@ -60,20 +107,60 @@ class AuthService {
             createdAt: (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
         )
     }
+}
+
+// Custom error handling
+enum AuthError: LocalizedError {
+    case wrongPassword
+    case userNotFound
+    case invalidEmail
+    case emailAlreadyInUse
+    case weakPassword
+    case networkError
+    case notAuthenticated
+    case unknown(String)
     
-    func updateUserProfile(userId: String, displayName: String?, profilePhotoURL: String?) async throws {
-        var updateData: [String: Any] = [:]
-        
-        if let displayName = displayName {
-            updateData["displayName"] = displayName
+    var errorDescription: String? {
+        switch self {
+        case .wrongPassword:
+            return "Incorrect password. Please try again."
+        case .userNotFound:
+            return "No account found with this email."
+        case .invalidEmail:
+            return "Please enter a valid email address."
+        case .emailAlreadyInUse:
+            return "An account with this email already exists."
+        case .weakPassword:
+            return "Password is too weak. Use at least 6 characters."
+        case .networkError:
+            return "Network error. Please check your connection."
+        case .notAuthenticated:
+            return "You must be logged in to perform this action."
+        case .unknown(let message):
+            return message
+        }
+    }
+    
+    static func from(_ error: NSError) -> AuthError {
+        guard let errorCode = AuthErrorCode(_bridgedNSError: error) else {
+            return .unknown(error.localizedDescription)
         }
         
-        if let profilePhotoURL = profilePhotoURL {
-            updateData["profilePhotoURL"] = profilePhotoURL
-        }
-        
-        if !updateData.isEmpty {
-            try await db.collection("users").document(userId).updateData(updateData)
+        switch errorCode.code {
+        case .wrongPassword:
+            return .wrongPassword
+        case .userNotFound:
+            return .userNotFound
+        case .invalidEmail:
+            return .invalidEmail
+        case .emailAlreadyInUse:
+            return .emailAlreadyInUse
+        case .weakPassword:
+            return .weakPassword
+        case .networkError:
+            return .networkError
+        default:
+            return .unknown(error.localizedDescription)
         }
     }
 }
