@@ -1,7 +1,11 @@
-//User
+//
+//  User.swift
+//  PickyUp
+//
 
 import Foundation
 import FirebaseFirestore
+
 
 struct User: Codable, Identifiable {
     @DocumentID var id: String?
@@ -9,7 +13,8 @@ struct User: Codable, Identifiable {
     var displayName: String
     var profilePhotoURL: String?
     var createdAt: Date
-    
+    var bio: String? = nil
+
     // Computed property for display
     var initials: String {
         let names = displayName.split(separator: " ")

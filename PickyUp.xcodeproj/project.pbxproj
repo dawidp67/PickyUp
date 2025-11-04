@@ -39,7 +39,6 @@
 		3443158C2EABD25300640CDE /* Exceptions for "PickyUp" folder in "PickyUp" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				"Utilities/Color+Extensions.swift",
 				Utilities/Helpers.swift,
 			);
 			target = 34A4E5902EA93592004CE595 /* PickyUp */;

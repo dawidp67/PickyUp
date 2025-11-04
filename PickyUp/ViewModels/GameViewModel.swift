@@ -15,7 +15,11 @@ class GameViewModel: ObservableObject {
     // Filter options
     @Published var selectedSportFilter: SportType?
     @Published var selectedSortOption: SortOption?
-    @Published var userLocation: CLLocationCoordinate2D?
+    @Published var userLocation: CLLocationCoordinate2D? {
+        didSet {
+            applyFilters()
+        }
+    }
     
     private let gameService = GameService.shared
     private var gamesListener: ListenerRegistration?
@@ -30,8 +34,10 @@ class GameViewModel: ObservableObject {
     
     private func setupGamesListener() {
         gamesListener = gameService.listenToGames { [weak self] games in
-            self?.games = games
-            self?.applyFilters()
+            Task { @MainActor in
+                self?.games = games
+                self?.applyFilters()
+            }
         }
     }
     
