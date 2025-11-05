@@ -1,8 +1,18 @@
+//
+// MainTabView.swift
+//
+// Views/Main/MainTabView.swift
+//
+// Last Updated 11/4/25
+
 import SwiftUI
 
 struct MainTabView: View {
-    @StateObject var authViewModel = AuthViewModel()
-    @StateObject var gameViewModel = GameViewModel()
+    @EnvironmentObject var authViewModel: AuthViewModel
+    @EnvironmentObject var gameViewModel: GameViewModel
+    @StateObject private var messagingViewModel = MessagingViewModel()
+    @StateObject private var notificationViewModel = NotificationViewModel()
+    @StateObject private var friendshipViewModel = FriendshipViewModel()
     
     var body: some View {
         TabView {
@@ -10,25 +20,50 @@ struct MainTabView: View {
                 .tabItem {
                     Label("Games", systemImage: "sportscourt")
                 }
-                .environmentObject(gameViewModel)
             
             MapView()
                 .tabItem {
                     Label("Map", systemImage: "map")
                 }
             
-            SearchView()
+            MessagingView()
                 .tabItem {
-                    Label("Search", systemImage: "magnifyingglass")
+                    Label("Messages", systemImage: "message")
                 }
-                .environmentObject(gameViewModel)
+                .badge(messagingViewModel.conversations.filter { hasUnreadMessages($0) }.count > 0 ? messagingViewModel.conversations.filter { hasUnreadMessages($0) }.count : 0)
+                .environmentObject(messagingViewModel)
+                .environmentObject(friendshipViewModel)
             
             ProfileView()
                 .tabItem {
                     Label("Profile", systemImage: "person.circle")
                 }
-                .environmentObject(authViewModel)
+                .badge(notificationViewModel.unreadCount > 0 ? notificationViewModel.unreadCount : 0)
+                .environmentObject(notificationViewModel)
+                .environmentObject(friendshipViewModel)
         }
         .accentColor(.blue)
+        .onAppear {
+            setupViewModels()
+        }
+    }
+    
+    private func setupViewModels() {
+        guard let userId = authViewModel.currentUser?.id else { return }
+        
+        // Setup real-time listeners
+        messagingViewModel.setupConversationsListener(userId: userId)
+        notificationViewModel.setupNotificationsListener(userId: userId)
+        friendshipViewModel.setupFriendsListener(userId: userId)
+        
+        // Fetch initial data
+        Task {
+            await friendshipViewModel.fetchPendingRequests(userId: userId)
+        }
+    }
+    
+    private func hasUnreadMessages(_ conversation: Conversation) -> Bool {
+        // Simplified - in production, track read status properly
+        return false
     }
 }

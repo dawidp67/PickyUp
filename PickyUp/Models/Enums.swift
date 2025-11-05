@@ -7,6 +7,8 @@ enum SportType: String, Codable, CaseIterable {
     case basketball = "Basketball"
     case volleyball = "Volleyball"
     case tennis = "Tennis"
+    case football = "Football"
+    case pickleball = "Pickleball"
     case other = "Other"
     
     var icon: String {
@@ -15,6 +17,8 @@ enum SportType: String, Codable, CaseIterable {
         case .basketball: return "🏀"
         case .volleyball: return "🏐"
         case .tennis: return "🎾"
+        case .football: return "🏈"
+        case .pickleball: return "🏓"
         case .other: return "⚾️"
         }
     }
@@ -25,6 +29,8 @@ enum SportType: String, Codable, CaseIterable {
         case .basketball: return "basketball"
         case .volleyball: return "volleyball"
         case .tennis: return "tennisball"
+        case .football: return "football"
+        case .pickleball: return "pickleball"
         case .other: return "sportscourt"
         }
     }
@@ -35,6 +41,8 @@ enum SportType: String, Codable, CaseIterable {
         case .basketball: return "orange"
         case .volleyball: return "blue"
         case .tennis: return "yellow"
+        case .football: return "red"
+        case .pickleball: return "pink"
         case .other: return "purple"
         }
     }

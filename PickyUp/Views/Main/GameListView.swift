@@ -1,3 +1,10 @@
+//
+// GameListView.swift
+//
+// Views/Main/GameListView.swift
+//
+// Last Updated 11/4/25
+
 import SwiftUI
 
 struct GameListView: View {
@@ -11,14 +18,63 @@ struct GameListView: View {
             : gameViewModel.filteredGames
     }
     
+    var activeFilters: [String] {
+        var filters: [String] = []
+        if let sport = gameViewModel.selectedSportFilter {
+            filters.append(sport.rawValue)
+        }
+        if let sort = gameViewModel.selectedSortOption {
+            filters.append(sort.rawValue)
+        }
+        return filters
+    }
+    
+    var filterSummary: String {
+        if activeFilters.isEmpty {
+            return "All Games"
+        } else if activeFilters.count <= 3 {
+            return activeFilters.joined(separator: ", ")
+        } else {
+            let first3 = activeFilters.prefix(3).joined(separator: ", ")
+            return "\(first3) +\(activeFilters.count - 3) more"
+        }
+    }
+    
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Filter Header
-                FilterHeaderView(showingFilters: $showingFilters)
-                    .environmentObject(gameViewModel)
+                // Fixed Filter Header
+                HStack {
+                    Text(filterSummary)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(activeFilters.isEmpty ? .primary : .blue)
+                        .lineLimit(1)
+                    
+                    Spacer()
+                    
+                    Button {
+                        showingFilters = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
+                            if !activeFilters.isEmpty {
+                                Text("\(activeFilters.count)")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.blue)
+                                    .foregroundStyle(.white)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+                }
+                .padding()
+                .background(Color(.systemGray6))
                 
-                // Games List
+                // Scrollable Games List
                 Group {
                     if displayGames.isEmpty {
                         ContentUnavailableView(
@@ -35,10 +91,14 @@ struct GameListView: View {
                             }
                         }
                         .listStyle(.plain)
+                        .refreshable {
+                            // Pull to refresh - games auto-update via listener
+                        }
                     }
                 }
             }
             .navigationTitle("All Games")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -58,42 +118,6 @@ struct GameListView: View {
                     .presentationDetents([.medium])
             }
         }
-    }
-}
-
-struct FilterHeaderView: View {
-    @EnvironmentObject var gameViewModel: GameViewModel
-    @Binding var showingFilters: Bool
-    
-    var activeFiltersCount: Int {
-        var count = 0
-        if gameViewModel.selectedSportFilter != nil { count += 1 }
-        if gameViewModel.selectedSortOption != nil { count += 1 }
-        return count
-    }
-    
-    var body: some View {
-        HStack {
-            Text("All Games")
-                .font(.headline)
-            
-            Spacer()
-            
-            Button {
-                showingFilters = true
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "line.3.horizontal.decrease.circle")
-                    if activeFiltersCount > 0 {
-                        Text("\(activeFiltersCount)")
-                            .font(.caption)
-                            .fontWeight(.bold)
-                    }
-                }
-            }
-        }
-        .padding()
-        .background(Color(.systemGray6))
     }
 }
 

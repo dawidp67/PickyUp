@@ -1,18 +1,14 @@
-//ContentView
-
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var authViewModel = AuthViewModel()
+    @EnvironmentObject var authViewModel: AuthViewModel
     
     var body: some View {
         Group {
             if authViewModel.isAuthenticated {
                 MainTabView()
-                    .environmentObject(authViewModel)
             } else {
                 LoginView()
-                    .environmentObject(authViewModel)
             }
         }
     }
@@ -20,4 +16,6 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
+        .environmentObject(AuthViewModel())
+        .environmentObject(GameViewModel())
 }

@@ -1,11 +1,12 @@
 //
-//  User.swift
-//  PickyUp
+// user.swift
 //
+// Models/user.swift
+//
+// Last Updated 11/3/25
 
 import Foundation
 import FirebaseFirestore
-
 
 struct User: Codable, Identifiable {
     @DocumentID var id: String?
@@ -14,8 +15,7 @@ struct User: Codable, Identifiable {
     var profilePhotoURL: String?
     var createdAt: Date
     var bio: String? = nil
-
-    // Computed property for display
+    
     var initials: String {
         let names = displayName.split(separator: " ")
         if names.count >= 2 {
