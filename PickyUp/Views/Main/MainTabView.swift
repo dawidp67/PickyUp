@@ -1,69 +1,89 @@
 //
-// MainTabView.swift
+//  MainTabView.swift
+//  PickyUp
 //
-// Views/Main/MainTabView.swift
+//  Created by Dawid Pankiewicz on 11/10/25.
 //
-// Last Updated 11/4/25
 
 import SwiftUI
 
 struct MainTabView: View {
     @EnvironmentObject var authViewModel: AuthViewModel
-    @EnvironmentObject var gameViewModel: GameViewModel
+
+    @StateObject private var gameViewModel = GameViewModel()
     @StateObject private var messagingViewModel = MessagingViewModel()
     @StateObject private var notificationViewModel = NotificationViewModel()
     @StateObject private var friendshipViewModel = FriendshipViewModel()
     
+    @State private var selectedTab = 0
+    
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
+            
+            // MARK: - Games Tab
             GameListView()
                 .tabItem {
-                    Label("Games", systemImage: "sportscourt")
+                    Label("Games", systemImage: "sportscourt.fill")
                 }
+                .tag(0)
             
+            // MARK: - Map Tab
             MapView()
                 .tabItem {
-                    Label("Map", systemImage: "map")
+                    Label("Map", systemImage: "map.fill")
                 }
+                .tag(1)
             
+            // MARK: - Messages Tab
             MessagingView()
                 .tabItem {
-                    Label("Messages", systemImage: "message")
+                    Label("Messages", systemImage: "message.fill")
                 }
-                .badge(messagingViewModel.conversations.filter { hasUnreadMessages($0) }.count > 0 ? messagingViewModel.conversations.filter { hasUnreadMessages($0) }.count : 0)
-                .environmentObject(messagingViewModel)
-                .environmentObject(friendshipViewModel)
+                .tag(2)
             
-            ProfileView()
-                .tabItem {
-                    Label("Profile", systemImage: "person.circle")
-                }
-                .badge(notificationViewModel.unreadCount > 0 ? notificationViewModel.unreadCount : 0)
-                .environmentObject(notificationViewModel)
-                .environmentObject(friendshipViewModel)
+            // MARK: - Profile Tab
+            NavigationStack {
+                ProfileView()
+            }
+            .tabItem {
+                Label("Profile", systemImage: "person.fill")
+            }
+            .tag(3)
         }
-        .accentColor(.blue)
+        // MARK: - Shared Environment Objects
+        .environmentObject(authViewModel)
+        .environmentObject(gameViewModel)
+        .environmentObject(messagingViewModel)
+        .environmentObject(notificationViewModel)
+        .environmentObject(friendshipViewModel)
+        
+        // MARK: - Lifecycle
         .onAppear {
-            setupViewModels()
+            setupListeners()
+        }
+        .onDisappear {
+            friendshipViewModel.removeListeners()
         }
     }
     
-    private func setupViewModels() {
+    // MARK: - Setup Listeners
+    private func setupListeners() {
         guard let userId = authViewModel.currentUser?.id else { return }
+        print("🚀 Setting up listeners for user: \(userId)")
         
-        // Setup real-time listeners
-        messagingViewModel.setupConversationsListener(userId: userId)
         notificationViewModel.setupNotificationsListener(userId: userId)
-        friendshipViewModel.setupFriendsListener(userId: userId)
-        
-        // Fetch initial data
-        Task {
-            await friendshipViewModel.fetchPendingRequests(userId: userId)
+        if let userId = authViewModel.currentUser?.id {
+            friendshipViewModel.startListening(userId: userId)
         }
+
+        messagingViewModel.setupConversationsListener(userId: userId)
+        
+        print("✅ All listeners setup complete")
     }
-    
-    private func hasUnreadMessages(_ conversation: Conversation) -> Bool {
-        // Simplified - in production, track read status properly
-        return false
-    }
+}
+
+// MARK: - Preview
+#Preview {
+    MainTabView()
+        .environmentObject(AuthViewModel())
 }

@@ -1,4 +1,9 @@
-//RSVPService
+//
+// RSVPService.swift
+//
+// Services/RSVPService.swift
+//
+// Last Updated 11/16/25
 
 import Foundation
 import FirebaseFirestore
@@ -30,6 +35,27 @@ class RSVPService {
                 updatedAt: Date()
             )
             try db.collection("rsvps").addDocument(from: rsvp)
+        }
+        
+        // Send notification to game creator
+        do {
+            let game = try await GameService.shared.fetchGame(gameId: gameId)
+            
+            // Don't notify the creator if they're the one RSVPing
+            if game.creatorId != userId {
+                let statusText = status == .going ? "is going" : "might attend"
+                try await NotificationService.shared.createNotification(
+                    userId: game.creatorId,
+                    type: .gameUpdate,
+                    title: "Game RSVP",
+                    message: "\(userName) \(statusText) to your game",
+                    fromUserId: userId,
+                    gameId: gameId
+                )
+                print("✅ RSVP notification sent to game creator")
+            }
+        } catch {
+            print("⚠️ Failed to create RSVP notification: \(error.localizedDescription)")
         }
     }
     

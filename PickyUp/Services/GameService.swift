@@ -1,4 +1,9 @@
-//GameService
+//
+// GameService.swift
+//
+// Services/GameService.swift
+//
+// Last Updated 11/16/25
 
 import Foundation
 import FirebaseFirestore
@@ -18,7 +23,16 @@ class GameService {
         let docRef = try db.collection("games").addDocument(from: gameData)
         return docRef.documentID
     }
-    
+    func fetchGamesCreatedBy(userId: String) async throws -> [Game] {
+        let snapshot = try await db.collection("games")
+            .whereField("creatorId", isEqualTo: userId)
+            .order(by: "createdAt", descending: true)
+            .getDocuments()
+        
+        return snapshot.documents.compactMap { doc in
+            try? doc.data(as: Game.self)
+        }
+    }
     func fetchUpcomingGames() async throws -> [Game] {
         let snapshot = try await db.collection("games")
             .whereField("status", isEqualTo: GameStatus.active.rawValue)
@@ -51,13 +65,57 @@ class GameService {
         var updateData = updates
         updateData["updatedAt"] = Timestamp(date: Date())
         try await db.collection("games").document(gameId).updateData(updateData)
+        
+        // Notify all RSVPed users about the game update
+        do {
+            let game = try await fetchGame(gameId: gameId)
+            let rsvps = try await RSVPService.shared.fetchRSVPs(gameId: gameId)
+            
+            for rsvp in rsvps where rsvp.userId != game.creatorId {
+                try await NotificationService.shared.createNotification(
+                    userId: rsvp.userId,
+                    type: .gameUpdate,
+                    title: "Game Updated",
+                    message: "A game you're attending has been updated",
+                    fromUserId: game.creatorId,
+                    gameId: gameId
+                )
+            }
+            print("✅ Game update notifications sent to \(rsvps.count) attendees")
+        } catch {
+            print("⚠️ Failed to create game update notifications: \(error.localizedDescription)")
+        }
     }
     
     func deleteGame(gameId: String) async throws {
+        // First, get the game details and all RSVPs
+        let game = try await fetchGame(gameId: gameId)
         let rsvps = try await db.collection("rsvps")
             .whereField("gameId", isEqualTo: gameId)
             .getDocuments()
         
+        // Notify all users who RSVPed to the game
+        for rsvpDoc in rsvps.documents {
+            if let rsvp = try? rsvpDoc.data(as: RSVP.self),
+               rsvp.userId != game.creatorId {
+                do {
+                    let sportName = game.sportType == .other ? (game.customSportName ?? "Game") : game.sportType.rawValue
+                    try await NotificationService.shared.createNotification(
+                        userId: rsvp.userId,
+                        type: .gameUpdate,
+                        title: "Game Cancelled",
+                        message: "\(game.creatorName) cancelled the \(sportName) game",
+                        fromUserId: game.creatorId,
+                        gameId: gameId
+                    )
+                } catch {
+                    print("⚠️ Failed to notify user \(rsvp.userId): \(error.localizedDescription)")
+                }
+            }
+        }
+        print("✅ Game cancellation notifications sent")
+        
+        // Delete all RSVPs and the game
         let batch = db.batch()
         rsvps.documents.forEach { batch.deleteDocument($0.reference) }
         batch.deleteDocument(db.collection("games").document(gameId))

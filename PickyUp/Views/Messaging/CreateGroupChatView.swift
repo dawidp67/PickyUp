@@ -1,10 +1,3 @@
-//
-// CreateGroupChatView.swift
-//
-// Views/Messaging/CreateGroupChatView.swift
-//
-// Last Updated 11/4/25
-
 import SwiftUI
 
 struct CreateGroupChatView: View {
@@ -34,15 +27,22 @@ struct CreateGroupChatView: View {
                         ForEach(friendshipViewModel.friends) { friendship in
                             if let currentUserId = authViewModel.currentUser?.id {
                                 let friendId = friendship.otherUserId(currentUserId: currentUserId)
-                                if let friend = friendshipViewModel.friendUsers[friendId] {
-                                    FriendSelectionRow(
-                                        user: friend,
-                                        isSelected: selectedUsers.contains(friendId)
-                                    )
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        toggleSelection(userId: friendId)
-                                    }
+                                
+                                // Create a temporary User placeholder
+                                let user = User(
+                                    id: friendId,
+                                    email: "",               // required first
+                                    displayName: friendId,   // comes after email
+                                    createdAt: Date()
+                                )
+                                
+                                FriendSelectionRow(
+                                    user: user,
+                                    isSelected: selectedUsers.contains(friendId)
+                                )
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    toggleSelection(userId: friendId)
                                 }
                             }
                         }
@@ -60,16 +60,16 @@ struct CreateGroupChatView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+                    Button("Cancel") { dismiss() }
                 }
                 
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") {
-                        createGroup()
-                    }
-                    .disabled(!isFormValid || isCreating)
+                    Button("Create") { createGroup() }
+                        .disabled(!isFormValid || isCreating)
+                }
+                
+                ToolbarItem(placement: .topBarTrailing) {
+                    CloseToolbarButton()
                 }
             }
             .disabled(isCreating)
@@ -77,7 +77,7 @@ struct CreateGroupChatView: View {
     }
     
     private var isFormValid: Bool {
-        !groupName.trimmingCharacters(in: .whitespaces).isEmpty && selectedUsers.count >= 2
+        !groupName.trimmingCharacters(in: .whitespaces).isEmpty && !selectedUsers.isEmpty
     }
     
     private func toggleSelection(userId: String) {
@@ -94,24 +94,25 @@ struct CreateGroupChatView: View {
         
         isCreating = true
         
-        // Get selected users
-        var participants: [User] = []
-        for userId in selectedUsers {
-            if let user = friendshipViewModel.friendUsers[userId] {
-                participants.append(user)
-            }
+        // Build participants from selectedUsers
+        let participants: [User] = selectedUsers.map { userId in
+            User(
+                id: userId,
+                email: "",            // required first
+                displayName: userId,  // after email
+                createdAt: Date()
+            )
         }
         
         Task {
             await messagingViewModel.createGroupChat(
-                name: groupName,
+                name: groupName.trimmingCharacters(in: .whitespaces),
                 participants: participants,
                 currentUserId: currentUserId,
                 currentUserName: currentUserName
             )
             
             isCreating = false
-            
             if messagingViewModel.errorMessage == nil {
                 dismiss()
             }
@@ -124,15 +125,19 @@ struct FriendSelectionRow: View {
     let user: User
     let isSelected: Bool
     
+    private var initials: String {
+        String(user.displayName.prefix(2)).uppercased()
+    }
+    
     var body: some View {
         HStack(spacing: 12) {
             Circle()
                 .fill(Color.blue.opacity(0.2))
                 .frame(width: 40, height: 40)
                 .overlay {
-                    Text(user.initials)
+                    Text(initials)
                         .font(.subheadline)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(.primary) // changed from .blue to adaptive
                 }
             
             Text(user.displayName)
@@ -140,14 +145,10 @@ struct FriendSelectionRow: View {
             
             Spacer()
             
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.blue)
-            } else {
-                Image(systemName: "circle")
-                    .foregroundStyle(.gray)
-            }
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isSelected ? .blue : .gray)
         }
         .padding(.vertical, 4)
     }
 }
+

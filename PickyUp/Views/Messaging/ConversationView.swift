@@ -64,10 +64,8 @@ struct ConversationView: View {
             .navigationTitle(getConversationTitle())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Done") {
-                        dismiss()
-                    }
+                ToolbarItem(placement: .topBarTrailing) {
+                    CloseToolbarButton()
                 }
                 
                 if conversation.type != .directMessage {
@@ -188,7 +186,7 @@ struct ParticipantsView: View {
                                 .overlay {
                                     Text(getInitials(userName))
                                         .font(.subheadline)
-                                        .foregroundStyle(.blue)
+                                        .foregroundStyle(.primary) // changed from .blue to adaptive
                                 }
                             
                             Text(userName)
@@ -204,9 +202,7 @@ struct ParticipantsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
+                    CloseToolbarButton()
                 }
             }
         }
@@ -222,3 +218,4 @@ struct ParticipantsView: View {
         return "?"
     }
 }
+

@@ -13,7 +13,7 @@ class MessagingViewModel: ObservableObject {
     @Published var conversations: [Conversation] = []
     @Published var currentMessages: [Message] = []
     @Published var selectedConversation: Conversation?
-    @Published var searchResults: [User] = []
+    @Published var searchResults: [AppUser] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var successMessage: String?
@@ -28,7 +28,6 @@ class MessagingViewModel: ObservableObject {
         messagesListener?.remove()
     }
     
-    // MARK: - Setup Conversations Listener
     func setupConversationsListener(userId: String) {
         conversationsListener = messagingService.listenToConversations(userId: userId) { [weak self] conversations in
             Task { @MainActor in
@@ -37,7 +36,6 @@ class MessagingViewModel: ObservableObject {
         }
     }
     
-    // MARK: - Setup Messages Listener
     func setupMessagesListener(conversationId: String) {
         messagesListener?.remove()
         
@@ -48,7 +46,6 @@ class MessagingViewModel: ObservableObject {
         }
     }
     
-    // MARK: - Search Users
     func searchUsers(query: String, currentUserId: String) async {
         guard !query.isEmpty else {
             searchResults = []
@@ -69,9 +66,8 @@ class MessagingViewModel: ObservableObject {
         isLoading = false
     }
     
-    // MARK: - Start DM Conversation
     func startDMConversation(
-        withUser user: User,
+        withUser user: AppUser,
         currentUserId: String,
         currentUserName: String
     ) async -> Conversation? {
@@ -101,10 +97,9 @@ class MessagingViewModel: ObservableObject {
         }
     }
     
-    // MARK: - Create Group Chat
     func createGroupChat(
         name: String,
-        participants: [User],
+        participants: [AppUser],
         currentUserId: String,
         currentUserName: String
     ) async {
@@ -123,7 +118,7 @@ class MessagingViewModel: ObservableObject {
         participantNames[currentUserId] = currentUserName
         
         do {
-            let conversationId = try await messagingService.createGroupChat(
+            let _ = try await messagingService.createGroupChat(
                 name: name,
                 participantIds: participantIds,
                 participantNames: participantNames,
@@ -139,7 +134,6 @@ class MessagingViewModel: ObservableObject {
         isLoading = false
     }
     
-    // MARK: - Send Message
     func sendMessage(
         text: String,
         conversationId: String,
@@ -160,7 +154,6 @@ class MessagingViewModel: ObservableObject {
         }
     }
     
-    // MARK: - Mark Message as Read
     func markMessageAsRead(messageId: String, conversationId: String, userId: String) async {
         do {
             try await messagingService.markMessageAsRead(
@@ -173,7 +166,6 @@ class MessagingViewModel: ObservableObject {
         }
     }
     
-    // MARK: - Delete Conversation
     func deleteConversation(conversationId: String) async {
         isLoading = true
         errorMessage = nil
@@ -195,8 +187,7 @@ class MessagingViewModel: ObservableObject {
         isLoading = false
     }
     
-    // MARK: - Add Participant to Group
-    func addParticipantToGroup(conversationId: String, user: User) async {
+    func addParticipantToGroup(conversationId: String, user: AppUser) async {
         guard let userId = user.id else { return }
         
         isLoading = true
@@ -218,7 +209,6 @@ class MessagingViewModel: ObservableObject {
         isLoading = false
     }
     
-    // MARK: - Remove Participant from Group
     func removeParticipantFromGroup(conversationId: String, userId: String) async {
         isLoading = true
         errorMessage = nil
@@ -238,14 +228,10 @@ class MessagingViewModel: ObservableObject {
         isLoading = false
     }
     
-    // MARK: - Get Unread Message Count
     func getUnreadCount(for conversation: Conversation, currentUserId: String) -> Int {
-        // This would need to be implemented with a query
-        // For now, return 0
         return 0
     }
     
-    // MARK: - Select Conversation
     func selectConversation(_ conversation: Conversation) {
         selectedConversation = conversation
         if let conversationId = conversation.id {
@@ -253,14 +239,12 @@ class MessagingViewModel: ObservableObject {
         }
     }
     
-    // MARK: - Clear Selection
     func clearSelection() {
         selectedConversation = nil
         messagesListener?.remove()
         currentMessages = []
     }
     
-    // MARK: - Clear Messages
     func clearMessages() {
         errorMessage = nil
         successMessage = nil

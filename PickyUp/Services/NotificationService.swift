@@ -3,11 +3,13 @@
 //
 // Services/NotificationService.swift
 //
-// Last Updated 11/4/25
+// Last Updated 11/10/25
 
 import Foundation
 import FirebaseFirestore
+import FirebaseAuth
 
+// MARK: - Notification Service
 class NotificationService {
     static let shared = NotificationService()
     private let db = Firestore.firestore()
@@ -20,18 +22,21 @@ class NotificationService {
         type: NotificationType,
         title: String,
         message: String,
-        fromUserId: String? = nil,
+        fromUserId: String,
+        friendshipId: String? = nil,
         gameId: String? = nil,
-        friendshipId: String? = nil
+        conversationId: String? = nil
     ) async throws {
-        var fromUserName: String? = nil
-        
-        if let fromId = fromUserId {
-            let userDoc = try await db.collection("users").document(fromId).getDocument()
-            fromUserName = userDoc.data()?["displayName"] as? String
+        var fromUserName: String?
+        do {
+            let fromUser = try await UserService.shared.getUser(userId: fromUserId)
+            fromUserName = fromUser.displayName
+        } catch {
+            print("⚠️ Could not fetch sender name: \(error.localizedDescription)")
         }
         
         let notification = AppNotification(
+            id: nil,
             userId: userId,
             type: type,
             title: title,
@@ -39,27 +44,23 @@ class NotificationService {
             timestamp: Date(),
             isRead: false,
             actionTaken: false,
-            relatedId: nil,
             fromUserId: fromUserId,
             fromUserName: fromUserName,
             friendshipId: friendshipId,
-            gameId: gameId,
-            conversationId: nil
+            conversationId: conversationId,
+            gameId: gameId
         )
         
         try db.collection("notifications").addDocument(from: notification)
+        print("✅ Notification created for user: \(userId), type: \(type.rawValue)")
     }
     
-    // MARK: - Get Notifications (alias for fetchNotifications)
-    func getNotifications(userId: String) async throws -> [AppNotification] {
-        return try await fetchNotifications(userId: userId)
-    }
-    
-    // MARK: - Fetch Notifications
-    func fetchNotifications(userId: String) async throws -> [AppNotification] {
+    // MARK: - Get Notifications
+    func getNotifications(userId: String, limit: Int = 50) async throws -> [AppNotification] {
         let snapshot = try await db.collection("notifications")
             .whereField("userId", isEqualTo: userId)
             .order(by: "timestamp", descending: true)
+            .limit(to: limit)
             .getDocuments()
         
         return snapshot.documents.compactMap { try? $0.data(as: AppNotification.self) }
@@ -70,8 +71,18 @@ class NotificationService {
         return db.collection("notifications")
             .whereField("userId", isEqualTo: userId)
             .order(by: "timestamp", descending: true)
+            .limit(to: 50)
             .addSnapshotListener { snapshot, error in
-                guard let documents = snapshot?.documents else { return }
+                if let error = error {
+                    print("❌ Notification listener error: \(error.localizedDescription)")
+                    return
+                }
+                
+                guard let documents = snapshot?.documents else {
+                    completion([])
+                    return
+                }
+                
                 let notifications = documents.compactMap { try? $0.data(as: AppNotification.self) }
                 completion(notifications)
             }
@@ -79,16 +90,19 @@ class NotificationService {
     
     // MARK: - Mark as Read
     func markAsRead(notificationId: String) async throws {
-        try await db.collection("notifications").document(notificationId).updateData([
-            "isRead": true
-        ])
+        try await db.collection("notifications")
+            .document(notificationId)
+            .updateData(["isRead": true])
     }
     
     // MARK: - Mark Action Taken
     func markActionTaken(notificationId: String) async throws {
-        try await db.collection("notifications").document(notificationId).updateData([
-            "actionTaken": true
-        ])
+        try await db.collection("notifications")
+            .document(notificationId)
+            .updateData([
+                "actionTaken": true,
+                "isRead": true
+            ])
     }
     
     // MARK: - Mark All as Read
@@ -99,25 +113,33 @@ class NotificationService {
             .getDocuments()
         
         let batch = db.batch()
+        
         for document in snapshot.documents {
             batch.updateData(["isRead": true], forDocument: document.reference)
         }
+        
         try await batch.commit()
     }
     
     // MARK: - Delete Notification
     func deleteNotification(notificationId: String) async throws {
-        try await db.collection("notifications").document(notificationId).delete()
+        try await db.collection("notifications")
+            .document(notificationId)
+            .delete()
     }
     
-    // MARK: - Delete All for User
+    // MARK: - Delete All Notifications
     func deleteAllNotifications(userId: String) async throws {
         let snapshot = try await db.collection("notifications")
             .whereField("userId", isEqualTo: userId)
             .getDocuments()
         
         let batch = db.batch()
-        snapshot.documents.forEach { batch.deleteDocument($0.reference) }
+        
+        for document in snapshot.documents {
+            batch.deleteDocument(document.reference)
+        }
+        
         try await batch.commit()
     }
     
@@ -129,5 +151,21 @@ class NotificationService {
             .getDocuments()
         
         return snapshot.documents.count
+    }
+    
+    // MARK: - Delete Notification by Context
+    func deleteNotificationsByContext(userId: String, friendshipId: String) async throws {
+        let snapshot = try await db.collection("notifications")
+            .whereField("userId", isEqualTo: userId)
+            .whereField("friendshipId", isEqualTo: friendshipId)
+            .getDocuments()
+        
+        let batch = db.batch()
+        
+        for document in snapshot.documents {
+            batch.deleteDocument(document.reference)
+        }
+        
+        try await batch.commit()
     }
 }

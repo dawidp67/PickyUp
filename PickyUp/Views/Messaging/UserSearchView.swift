@@ -1,252 +1,511 @@
 //
-// UserSearchView.swift
+//  UserSearchView.swift
+//  PickyUp
 //
-// Views/Messaging/UserSearchView.swift
+//  Created by Dawid Pankiewicz on 11/11/25.
 //
-// Last Updated 11/4/25
 
 import SwiftUI
 
 struct UserSearchView: View {
-    @Environment(\.dismiss) var dismiss
     @EnvironmentObject var authViewModel: AuthViewModel
-    @EnvironmentObject var messagingViewModel: MessagingViewModel
     @EnvironmentObject var friendshipViewModel: FriendshipViewModel
-    
+    @EnvironmentObject var messagingViewModel: MessagingViewModel
+
     @State private var searchText = ""
-    @State private var selectedUser: User?
-    @State private var friendshipStatuses: [String: Friendship?] = [:]
+    @State private var searchResults: [AppUser] = []
+    @State private var selectedMenuUser: AppUser?
+    @State private var showingAlert = false
+    @State private var alertMessage = ""
+    @State private var viewingProfileUser: AppUser?
+    @State private var isSearching = false
+    @State private var hasSearched = false
+    
     @State private var searchTask: Task<Void, Never>?
-    
-    // Navigation state for conversations
-    @State private var selectedConversationId: String?
-    @State private var showingConversation = false
-    @State private var isLoading = false
-    
+
     var body: some View {
         NavigationStack {
-            VStack {
-                if messagingViewModel.isLoading {
-                    ProgressView("Searching...")
-                        .padding()
-                } else if messagingViewModel.searchResults.isEmpty && !searchText.isEmpty && searchText.count >= 2 {
-                    emptyStateView
-                } else if !searchText.isEmpty && searchText.count < 2 {
-                    Text("Type at least 2 characters to search")
+            content
+                .navigationTitle("Find People")
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        CloseToolbarButton()
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Search") {
+                            Task { await searchUsers() }
+                        }
+                        .disabled(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
+                    }
+                }
+        }
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search by name or email")
+        .onChange(of: searchText) { _, newValue in
+            searchTask?.cancel()
+            
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                searchResults = []
+                hasSearched = false
+                isSearching = false
+                return
+            }
+            
+            searchTask = Task { [trimmed] in
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                if Task.isCancelled { return }
+                await searchUsers(queryOverride: trimmed)
+            }
+        }
+        .sheet(item: $viewingProfileUser) { user in
+            UserProfileView(user: user)
+                .environmentObject(authViewModel)
+                .environmentObject(friendshipViewModel)
+                .environmentObject(messagingViewModel)
+        }
+        .alert("Notice", isPresented: $showingAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(alertMessage)
+        }
+    }
+    
+    @ViewBuilder
+    private var content: some View {
+        VStack {
+            if isSearching {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Searching...")
                         .foregroundStyle(.secondary)
-                        .padding()
-                } else {
-                    searchResultsList
+                        .font(.subheadline)
+                    Spacer()
                 }
+                .padding(.horizontal)
+                .padding(.top, 8)
             }
-            .navigationTitle("Search Users")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $searchText, prompt: "Search by name or email")
-            .onChange(of: searchText) { oldValue, newValue in
-                // Cancel previous search
-                searchTask?.cancel()
-                
-                // Debounce search - wait 0.5 seconds after user stops typing
-                searchTask = Task {
-                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            
+            if isSearching {
+                Spacer()
+                ProgressView("Searching...")
+                Spacer()
+            } else if hasSearched && searchResults.isEmpty {
+                Spacer()
+                VStack(spacing: 16) {
+                    Image(systemName: "person.crop.circle.badge.questionmark")
+                        .font(.system(size: 60))
+                        .foregroundStyle(.gray)
                     
-                    if !Task.isCancelled {
-                        await performSearch(query: newValue)
+                    Text("No users found")
+                        .font(.headline)
+                    
+                    Text("Try searching with a different name or email")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+                Spacer()
+            } else if !hasSearched {
+                Spacer()
+                VStack(spacing: 16) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 60))
+                        .foregroundStyle(.gray)
+                    
+                    Text("Search for friends")
+                        .font(.headline)
+                    
+                    Text("Enter a name or email to find people")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            } else {
+                ScrollView {
+                    VStack(spacing: 12) {
+                        ForEach(searchResults) { user in
+                            SearchResultRowView(
+                                user: user,
+                                onProfileTap: { viewingProfileUser = user },
+                                onMenuTap: { selectedMenuUser = user }
+                            )
+                        }
                     }
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
-            .sheet(item: $selectedUser) { user in
-                UserPreviewView(userId: user.id ?? "", user: user)
-                    .environmentObject(authViewModel)
-                    .environmentObject(friendshipViewModel)
-                    .environmentObject(messagingViewModel)
-            }
-            .navigationDestination(isPresented: $showingConversation) {
-                if let conversationId = selectedConversationId {
-                    ChatView(conversationId: conversationId)
-                        .environmentObject(authViewModel)
-                        .environmentObject(messagingViewModel)
-                        .environmentObject(friendshipViewModel)
+                    .padding()
                 }
             }
         }
     }
-    
-    private var searchResultsList: some View {
-        List(messagingViewModel.searchResults) { user in
-            UserSearchRowView(
-                user: user,
-                friendshipStatus: friendshipStatuses[user.id ?? ""] ?? nil
-            )
-            .contentShape(Rectangle())
-            .onTapGesture {
-                selectedUser = user
-            }
-            .onAppear {
-                loadFriendshipStatus(for: user)
-            }
-        }
-        .listStyle(.plain)
-    }
-    
-    private var emptyStateView: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "person.crop.circle.badge.questionmark")
-                .font(.system(size: 60))
-                .foregroundStyle(.gray)
-            
-            Text("No Users Found")
-                .font(.title2)
-                .fontWeight(.semibold)
-            
-            Text("Try searching with a different name or email")
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding()
-    }
-    
-    private func performSearch(query: String) async {
-        guard let currentUserId = authViewModel.currentUser?.id else { return }
-        await messagingViewModel.searchUsers(query: query, currentUserId: currentUserId)
-    }
-    
-    private func loadFriendshipStatus(for user: User) {
-        guard let userId = user.id,
-              let currentUserId = authViewModel.currentUser?.id else { return }
+
+    private func searchUsers(queryOverride: String? = nil) async {
+        let rawQuery = queryOverride ?? searchText
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
         
-        // Check if we already loaded this
-        guard friendshipStatuses[userId] == nil else { return }
-        
-        Task {
-            let status = await friendshipViewModel.getFriendshipStatus(userId1: currentUserId, userId2: userId)
+        if query.count < 2 {
             await MainActor.run {
-                friendshipStatuses[userId] = status
+                self.searchResults = []
+                self.hasSearched = false
+                self.isSearching = false
+            }
+            return
+        }
+        
+        print("🔍 Starting search for: '\(query)'")
+        
+        await MainActor.run { isSearching = true }
+        
+        do {
+            let results = try await AuthService.shared.searchUsers(keyword: query)
+            print("🔍 Raw results count: \(results.count)")
+            
+            await MainActor.run {
+                self.searchResults = results.filter { $0.id != authViewModel.currentUser?.id }
+                self.hasSearched = true
+                self.isSearching = false
+                
+                print("🔍 Filtered results count: \(self.searchResults.count)")
+            }
+        } catch {
+            print("❌ Search error: \(error.localizedDescription)")
+            await MainActor.run {
+                self.alertMessage = "Failed to search users: \(error.localizedDescription)"
+                self.showingAlert = true
+                self.hasSearched = true
+                self.isSearching = false
             }
         }
     }
-    
-    func openConversation(with user: User) async {
-        guard let currentUser = authViewModel.currentUser,
-              let userId = currentUser.id,
-              let targetId = user.id else { return }
-        
-        isLoading = true
-        do {
-            let convId = try await MessagingService.shared.getOrCreateDirectConversation(
-                userId1: userId,
-                userId2: targetId,
-                user1Name: currentUser.displayName,
-                user2Name: user.displayName
-            )
-            selectedConversationId = convId
-            showingConversation = true
-        } catch {
-            print("Error opening conversation: \(error)")
+
+    private func addFriend(_ user: AppUser) async {
+        guard let currentUserId = authViewModel.currentUser?.id,
+              let targetUserId = user.id else {
+            print("❌ Missing user IDs for friend request")
+            return
         }
-        isLoading = false
+        
+        print("📤 Sending friend request to: \(user.displayName)")
+        
+        do {
+            try await FriendshipService.shared.sendFriendRequest(from: currentUserId, to: targetUserId)
+            await MainActor.run {
+                alertMessage = "Friend request sent to \(user.displayName)."
+                showingAlert = true
+                print("✅ Friend request sent successfully")
+            }
+        } catch {
+            print("❌ Failed to send friend request: \(error.localizedDescription)")
+            await MainActor.run {
+                alertMessage = "Failed to send friend request: \(error.localizedDescription)"
+                showingAlert = true
+            }
+        }
+    }
+
+    private func startConversation(with user: AppUser) async {
+        guard let currentUser = authViewModel.currentUser,
+              let currentUserId = currentUser.id else {
+            print("❌ Missing current user for conversation")
+            return
+        }
+        
+        print("💬 Starting conversation with: \(user.displayName)")
+        
+        let conversation = await messagingViewModel.startDMConversation(
+            withUser: user,
+            currentUserId: currentUserId,
+            currentUserName: currentUser.displayName
+        )
+        
+        await MainActor.run {
+            if conversation != nil {
+                alertMessage = "Chat started with \(user.displayName)."
+                print("✅ Chat started successfully")
+            } else {
+                alertMessage = "Failed to start chat."
+                print("❌ Failed to start chat")
+            }
+            showingAlert = true
+        }
     }
 }
 
-// MARK: - User Search Row
-struct UserSearchRowView: View {
-    @EnvironmentObject var authViewModel: AuthViewModel
-    @EnvironmentObject var messagingViewModel: MessagingViewModel
-    @EnvironmentObject var friendshipViewModel: FriendshipViewModel
+struct SearchResultRowView: View {
+    let user: AppUser
+    let onProfileTap: () -> Void
+    let onMenuTap: () -> Void
     
-    let user: User
-    let friendshipStatus: Friendship?
-    
-    @State private var isProcessing = false
+    @State private var showMenu = false
     
     var body: some View {
         HStack(spacing: 12) {
-            // Avatar
-            Circle()
-                .fill(Color.blue.opacity(0.2))
-                .frame(width: 50, height: 50)
-                .overlay {
-                    Text(user.initials)
-                        .font(.headline)
-                        .foregroundStyle(.blue)
+            Button(action: onProfileTap) {
+                HStack(spacing: 12) {
+                    Circle()
+                        .fill(Color.white.opacity(0.2))
+                        .frame(width: 48, height: 48)
+                        .overlay(
+                            Text(user.initials)
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                        )
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(user.displayName)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                        
+                        Text(user.email)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    
+                    Spacer()
                 }
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text(user.displayName)
-                    .font(.headline)
-                
-                Text(user.email)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
             }
+            .buttonStyle(.plain)
+            .tint(.primary)
+            
+            Menu {
+                Button(action: {
+                    onMenuTap()
+                    showMenu = false
+                }) {
+                    Label("View Profile", systemImage: "person.crop.circle")
+                }
+                
+                Button(action: {
+                    onMenuTap()
+                    showMenu = false
+                }) {
+                    Label("Message", systemImage: "message.fill")
+                }
+                
+                Button(action: {
+                    onMenuTap()
+                    showMenu = false
+                }) {
+                    Label("Add Friend", systemImage: "person.badge.plus")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .tint(.secondary)
+            .menuOrder(.fixed)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .background(Color(.systemGray6))
+        .cornerRadius(12)
+        .sheet(isPresented: $showMenu) {
+            SearchUserActionSheet(
+                user: user,
+                isPresented: $showMenu
+            )
+        }
+    }
+}
+
+struct SearchUserActionSheet: View {
+    let user: AppUser
+    @Binding var isPresented: Bool
+    
+    @EnvironmentObject var authViewModel: AuthViewModel
+    @EnvironmentObject var friendshipViewModel: FriendshipViewModel
+    @EnvironmentObject var messagingViewModel: MessagingViewModel
+    @State private var alertMessage = ""
+    @State private var showAlert = false
+    @State private var viewingProfile = false
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 12) {
+                HStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.2))
+                        .frame(width: 56, height: 56)
+                        .overlay(
+                            Text(user.initials)
+                                .font(.system(size: 24, weight: .semibold))
+                                .foregroundStyle(.primary)
+                        )
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(user.displayName)
+                            .font(.headline)
+                        
+                        Text(user.email)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    Button {
+                        isPresented = false
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding()
+            }
+            .background(Color(.systemGray6))
+            
+            Divider()
+            
+            VStack(spacing: 12) {
+                Button(action: { viewingProfile = true }) {
+                    HStack(spacing: 12) {
+                        Text("👤")
+                            .font(.system(size: 24))
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("View Profile")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                            
+                            Text("See all details")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding()
+                    .background(Color(.systemBackground))
+                    .cornerRadius(10)
+                }
+                
+                Button(action: {
+                    Task { await startConversation() }
+                }) {
+                    HStack(spacing: 12) {
+                        Text("💬")
+                            .font(.system(size: 24))
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Message")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                            
+                            Text("Start a chat")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding()
+                    .background(Color(.systemBackground))
+                    .cornerRadius(10)
+                }
+                
+                Button(action: {
+                    Task { await addFriend() }
+                }) {
+                    HStack(spacing: 12) {
+                        Text("👋")
+                            .font(.system(size: 24))
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Add Friend")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                            
+                            Text("Send friend request")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding()
+                    .background(Color(.systemBackground))
+                    .cornerRadius(10)
+                }
+            }
+            .padding()
             
             Spacer()
-            
-            HStack(spacing: 8) {
-                // Add Friend Button
-                if shouldShowAddFriendButton {
-                    Button {
-                        addFriend()
-                    } label: {
-                        Image(systemName: "person.badge.plus")
-                            .font(.title3)
-                            .foregroundStyle(.blue)
-                    }
-                    .disabled(isProcessing)
-                }
-                
-                // Message Button
-                Button {
-                    messageUser()
-                } label: {
-                    Image(systemName: "message")
-                        .font(.title3)
-                        .foregroundStyle(.blue)
-                }
-                .disabled(isProcessing)
-            }
         }
-        .padding(.vertical, 4)
-        .opacity(isProcessing ? 0.6 : 1.0)
+        .background(Color(.systemGray6))
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+        .sheet(isPresented: $viewingProfile) {
+            UserProfileView(user: user)
+                .environmentObject(authViewModel)
+                .environmentObject(friendshipViewModel)
+                .environmentObject(messagingViewModel)
+        }
+        .alert("Notice", isPresented: $showAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(alertMessage)
+        }
     }
     
-    private var shouldShowAddFriendButton: Bool {
-        guard let status = friendshipStatus else { return true }
-        return status.status != .accepted
-    }
-    
-    private func addFriend() {
+    private func addFriend() async {
         guard let currentUserId = authViewModel.currentUser?.id,
               let targetUserId = user.id else { return }
         
-        isProcessing = true
-        
-        Task {
-            await friendshipViewModel.sendFriendRequest(to: targetUserId, from: currentUserId)
-            isProcessing = false
+        do {
+            try await FriendshipService.shared.sendFriendRequest(from: currentUserId, to: targetUserId)
+            await MainActor.run {
+                alertMessage = "Friend request sent to \(user.displayName)."
+                showAlert = true
+                isPresented = false
+            }
+        } catch {
+            await MainActor.run {
+                alertMessage = "Failed to send friend request: \(error.localizedDescription)"
+                showAlert = true
+            }
         }
     }
     
-    private func messageUser() {
-        guard let currentUserId = authViewModel.currentUser?.id,
-              let currentUserName = authViewModel.currentUser?.displayName else { return }
+    private func startConversation() async {
+        guard let currentUser = authViewModel.currentUser,
+              let currentUserId = currentUser.id else { return }
         
-        isProcessing = true
+        let conversation = await messagingViewModel.startDMConversation(
+            withUser: user,
+            currentUserId: currentUserId,
+            currentUserName: currentUser.displayName
+        )
         
-        Task {
-            let _ = try? await messagingViewModel.startDMConversation(
-                withUser: user,
-                currentUserId: currentUserId,
-                currentUserName: currentUserName
-            )
-            isProcessing = false
+        await MainActor.run {
+            if conversation != nil {
+                alertMessage = "Chat started with \(user.displayName)."
+                showAlert = true
+                isPresented = false
+            } else {
+                alertMessage = "Failed to start chat."
+                showAlert = true
+            }
         }
     }
+}
+
+#Preview {
+    UserSearchView()
+        .environmentObject(AuthViewModel())
+        .environmentObject(FriendshipViewModel())
+        .environmentObject(MessagingViewModel())
 }

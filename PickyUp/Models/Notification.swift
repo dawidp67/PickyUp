@@ -3,20 +3,20 @@
 //
 // Models/Notification.swift
 //
-// Last Updated 11/4/25
+// Last Updated 11/16/25
 
 import Foundation
 import FirebaseFirestore
 
 // MARK: - Notification Type
 enum NotificationType: String, Codable {
-    case friendRequest
-    case friendAccepted
-    case newMessage
-    case newGame
-    case gameUpdate
-    case gameReminder
-    case blocked
+    case friendRequest = "friendRequest"
+    case friendAccepted = "friendAccepted"
+    case newMessage = "newMessage"
+    case newGame = "newGame"
+    case gameUpdate = "gameUpdate"
+    case gameReminder = "gameReminder"
+    case blocked = "blocked"
 }
 
 // MARK: - App Notification
@@ -31,12 +31,30 @@ struct AppNotification: Identifiable, Codable {
     var actionTaken: Bool
     
     // Optional fields for additional context
-    var relatedId: String?
+    var relatedId: String? // Generic field for backward compatibility
     var fromUserId: String?
     var fromUserName: String?
     var friendshipId: String?
-    var gameId: String?
     var conversationId: String?
+    var gameId: String?
+    
+    // Coding keys for Firestore
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId
+        case type
+        case title
+        case message
+        case timestamp
+        case isRead
+        case actionTaken
+        case relatedId
+        case fromUserId
+        case fromUserName
+        case friendshipId
+        case conversationId
+        case gameId
+    }
     
     // Initializer with default values
     init(
@@ -52,8 +70,8 @@ struct AppNotification: Identifiable, Codable {
         fromUserId: String? = nil,
         fromUserName: String? = nil,
         friendshipId: String? = nil,
-        gameId: String? = nil,
-        conversationId: String? = nil
+        conversationId: String? = nil,
+        gameId: String? = nil
     ) {
         self.id = id
         self.userId = userId
@@ -63,11 +81,11 @@ struct AppNotification: Identifiable, Codable {
         self.timestamp = timestamp
         self.isRead = isRead
         self.actionTaken = actionTaken
-        self.relatedId = relatedId
+        self.relatedId = relatedId ?? friendshipId ?? conversationId ?? gameId
         self.fromUserId = fromUserId
         self.fromUserName = fromUserName
         self.friendshipId = friendshipId
-        self.gameId = gameId
         self.conversationId = conversationId
+        self.gameId = gameId
     }
 }

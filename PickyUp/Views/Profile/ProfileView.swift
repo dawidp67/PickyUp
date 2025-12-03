@@ -3,7 +3,7 @@
 //
 // Views/Profile/ProfileView.swift
 //
-// Last Updated 11/4/25
+// Last Updated 11/16/25
 
 import SwiftUI
 
@@ -11,6 +11,7 @@ struct ProfileView: View {
     @EnvironmentObject var authViewModel: AuthViewModel
     @EnvironmentObject var gameViewModel: GameViewModel
     @EnvironmentObject var notificationViewModel: NotificationViewModel
+    @EnvironmentObject var friendshipViewModel: FriendshipViewModel
     @StateObject private var profileViewModel = ProfileViewModel()
     @State private var showingEditProfile = false
     @State private var showingNotifications = false
@@ -22,13 +23,28 @@ struct ProfileView: View {
                 VStack(spacing: 24) {
                     VStack(spacing: 12) {
                         ZStack {
-                            Circle()
-                                .fill(Color.blue.gradient)
-                                .frame(width: 100, height: 100)
-                            
-                            Text(authViewModel.currentUser?.initials ?? "?")
-                                .font(.system(size: 40, weight: .semibold))
-                                .foregroundStyle(.white)
+                            if let urlString = authViewModel.currentUser?.profilePhotoURL,
+                               let url = URL(string: urlString) {
+                                AsyncImage(url: url) { phase in
+                                    switch phase {
+                                    case .empty:
+                                        ProgressView()
+                                            .frame(width: 100, height: 100)
+                                    case .success(let image):
+                                        image
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 100, height: 100)
+                                            .clipShape(Circle())
+                                    case .failure:
+                                        initialsCircle
+                                    @unknown default:
+                                        initialsCircle
+                                    }
+                                }
+                            } else {
+                                initialsCircle
+                            }
                         }
                         
                         if let user = authViewModel.currentUser {
@@ -66,6 +82,15 @@ struct ProfileView: View {
                                 .font(.title)
                                 .fontWeight(.bold)
                             Text("Attending")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        VStack {
+                            Text("\(friendshipViewModel.friends.count)")
+                                .font(.title)
+                                .fontWeight(.bold)
+                            Text("Friends")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -124,10 +149,16 @@ struct ProfileView: View {
                                 .font(.title3)
                             
                             if notificationViewModel.unreadCount > 0 {
-                                Circle()
-                                    .fill(Color.red)
-                                    .frame(width: 8, height: 8)
-                                    .offset(x: 4, y: -4)
+                                ZStack {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 18, height: 18)
+                                    
+                                    Text("\(notificationViewModel.unreadCount)")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(.white)
+                                }
+                                .offset(x: 8, y: -8)
                             }
                         }
                     }
@@ -150,6 +181,7 @@ struct ProfileView: View {
                 NotificationView()
                     .environmentObject(notificationViewModel)
                     .environmentObject(authViewModel)
+                    .environmentObject(friendshipViewModel)
             }
             .sheet(isPresented: $showingSettings) {
                 SettingsView()
@@ -167,6 +199,17 @@ struct ProfileView: View {
                     await profileViewModel.fetchAttendingGames(userId: userId)
                 }
             }
+        }
+    }
+    
+    private var initialsCircle: some View {
+        ZStack {
+            Circle()
+                .fill(Color.blue.gradient)
+                .frame(width: 100, height: 100)
+            Text(authViewModel.currentUser?.initials ?? "?")
+                .font(.system(size: 40, weight: .semibold))
+                .foregroundStyle(.white)
         }
     }
 }

@@ -16,24 +16,60 @@ class UserService {
     private init() {}
     
     // MARK: - Create User
-    func createUser(_ user: User) async throws {
+    func createUser(_ user: AppUser) async throws {
         guard let userId = user.id else {
             throw NSError(domain: "UserService", code: 400, userInfo: [NSLocalizedDescriptionKey: "User ID is required"])
         }
         
         try db.collection("users").document(userId).setData(from: user)
         
-        // Add search tokens for better search performance
         let searchTokens = generateSearchTokens(from: user.displayName) + generateSearchTokens(from: user.email)
         try await db.collection("users").document(userId).updateData([
             "searchTokens": searchTokens
         ])
         
-        // Create default settings
         let settings = UserSettings.default
         var settingsWithId = settings
         settingsWithId.userId = userId
         try db.collection("userSettings").document(userId).setData(from: settingsWithId)
+    }
+    
+    // MARK: - Migration: Add Search Tokens to Existing Users
+    func migrateUsersAddSearchTokens() async throws {
+        print("🔄 Starting user search token migration...")
+        
+        let snapshot = try await db.collection("users").getDocuments()
+        
+        var updatedCount = 0
+        var skippedCount = 0
+        
+        for document in snapshot.documents {
+            let userId = document.documentID
+            let data = document.data()
+            
+            if data["searchTokens"] != nil {
+                skippedCount += 1
+                continue
+            }
+            
+            guard let displayName = data["displayName"] as? String,
+                  let email = data["email"] as? String else {
+                print("⚠️ Skipping user \(userId) - missing displayName or email")
+                skippedCount += 1
+                continue
+            }
+            
+            let searchTokens = generateSearchTokens(from: displayName) + generateSearchTokens(from: email)
+            
+            try await db.collection("users").document(userId).updateData([
+                "searchTokens": searchTokens
+            ])
+            
+            updatedCount += 1
+            print("✅ Updated user: \(displayName) (\(userId))")
+        }
+        
+        print("✅ Migration complete! Updated: \(updatedCount), Skipped: \(skippedCount)")
     }
     
     // MARK: - Generate Search Tokens
@@ -41,15 +77,11 @@ class UserService {
         let lowercased = text.lowercased()
         var tokens: Set<String> = []
         
-        // Add full text
         tokens.insert(lowercased)
         
-        // Add words
         let words = lowercased.split(separator: " ")
         for word in words {
             tokens.insert(String(word))
-            
-            // Add prefixes (for autocomplete)
             for i in 1...min(word.count, 10) {
                 let prefix = String(word.prefix(i))
                 tokens.insert(prefix)
@@ -60,10 +92,10 @@ class UserService {
     }
     
     // MARK: - Get User
-    func getUser(userId: String) async throws -> User {
+    func getUser(userId: String) async throws -> AppUser {
         let document = try await db.collection("users").document(userId).getDocument()
         
-        guard let user = try? document.data(as: User.self) else {
+        guard let user = try? document.data(as: AppUser.self) else {
             throw NSError(domain: "UserService", code: 404, userInfo: [NSLocalizedDescriptionKey: "User not found"])
         }
         
@@ -71,7 +103,7 @@ class UserService {
     }
     
     // MARK: - Fetch User (alias for getUser)
-    func fetchUser(userId: String) async throws -> User {
+    func fetchUser(userId: String) async throws -> AppUser {
         return try await getUser(userId: userId)
     }
     
@@ -81,30 +113,27 @@ class UserService {
     }
     
     // MARK: - Search Users (Optimized)
-    func searchUsers(query: String, currentUserId: String) async throws -> [User] {
-        guard query.count >= 2 else { return [] }  // Require at least 2 characters
+    func searchUsers(query: String, currentUserId: String) async throws -> [AppUser] {
+        guard query.count >= 2 else { return [] }
         
         let lowercaseQuery = query.lowercased()
         
-        // Use array-contains to search tokens
         let snapshot = try await db.collection("users")
             .whereField("searchTokens", arrayContains: lowercaseQuery)
             .limit(to: 20)
             .getDocuments()
         
-        let users = snapshot.documents.compactMap { try? $0.data(as: User.self) }
+        let users = snapshot.documents.compactMap { try? $0.data(as: AppUser.self) }
         
-        // Filter out current user
         return users.filter { $0.id != currentUserId }
     }
     
     // MARK: - Get Multiple Users
-    func getUsers(userIds: [String]) async throws -> [User] {
+    func getUsers(userIds: [String]) async throws -> [AppUser] {
         guard !userIds.isEmpty else { return [] }
         
-        var users: [User] = []
+        var users: [AppUser] = []
         
-        // Firestore has a limit of 10 items per 'in' query
         let batches = stride(from: 0, to: userIds.count, by: 10).map {
             Array(userIds[$0..<min($0 + 10, userIds.count)])
         }
@@ -114,7 +143,7 @@ class UserService {
                 .whereField(FieldPath.documentID(), in: batch)
                 .getDocuments()
             
-            let batchUsers = snapshot.documents.compactMap { try? $0.data(as: User.self) }
+            let batchUsers = snapshot.documents.compactMap { try? $0.data(as: AppUser.self) }
             users.append(contentsOf: batchUsers)
         }
         
@@ -128,7 +157,6 @@ class UserService {
         if let settings = try? document.data(as: UserSettings.self) {
             return settings
         } else {
-            // Create default settings if they don't exist
             var defaultSettings = UserSettings.default
             defaultSettings.userId = userId
             try db.collection("userSettings").document(userId).setData(from: defaultSettings)
@@ -148,7 +176,6 @@ class UserService {
         if let settings = try? document.data(as: UserPrivacySettings.self) {
             return settings
         } else {
-            // Return defaults if not set
             return UserPrivacySettings.defaultSettings(userId: userId, targetUserId: targetUserId)
         }
     }
@@ -162,10 +189,8 @@ class UserService {
         if document.exists {
             try await docRef.updateData(updates)
         } else {
-            // Create new settings
             var settings = UserPrivacySettings.defaultSettings(userId: userId, targetUserId: targetUserId)
             
-            // Apply updates
             if let allowDM = updates["allowDirectMessages"] as? Bool {
                 settings.allowDirectMessages = allowDM
             }
@@ -185,16 +210,7 @@ class UserService {
     
     // MARK: - Delete User
     func deleteUser(userId: String) async throws {
-        // Delete user document
         try await db.collection("users").document(userId).delete()
-        
-        // Delete user settings
         try await db.collection("userSettings").document(userId).delete()
-        
-        // Note: In production, should also clean up:
-        // - All friendships
-        // - All messages
-        // - All notifications
-        // - Auth account
     }
 }

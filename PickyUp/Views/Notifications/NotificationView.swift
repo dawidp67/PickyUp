@@ -3,7 +3,7 @@
 //
 // Views/Notifications/NotificationView.swift
 //
-// Last Updated 11/4/25
+// Last Updated 11/17/25
 
 import SwiftUI
 
@@ -26,9 +26,7 @@ struct NotificationView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Done") {
-                        dismiss()
-                    }
+                    CloseToolbarButton()
                 }
                 
                 if !notificationViewModel.notifications.isEmpty {
@@ -41,7 +39,7 @@ struct NotificationView: View {
                             }
                             
                             Button(role: .destructive) {
-                                deleteAllNotifications()
+                                clearAllNotifications()
                             } label: {
                                 Label("Clear All", systemImage: "trash")
                             }
@@ -51,6 +49,22 @@ struct NotificationView: View {
                     }
                 }
             }
+            .task {
+                // Setup listener for real-time notifications
+                if let userId = authViewModel.currentUser?.id {
+                    notificationViewModel.setupNotificationsListener(userId: userId)
+                }
+            }
+            .onDisappear {
+                // Clean up listener when view disappears
+                notificationViewModel.removeListener()
+            }
+            .onAppear {
+                // Debug logging
+                print("🔔 NotificationView appeared")
+                print("🔔 Current user ID: \(authViewModel.currentUser?.id ?? "nil")")
+                print("🔔 Notifications count: \(notificationViewModel.notifications.count)")
+            }
         }
     }
     
@@ -58,6 +72,7 @@ struct NotificationView: View {
         List {
             ForEach(notificationViewModel.notifications) { notification in
                 NotificationRowView(notification: notification)
+                    .listRowBackground(notification.isRead ? Color.clear : Color.blue.opacity(0.05))
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         Button(role: .destructive) {
                             deleteNotification(notification)
@@ -65,7 +80,6 @@ struct NotificationView: View {
                             Label("Delete", systemImage: "trash")
                         }
                     }
-                    .listRowBackground(notification.isRead ? Color.clear : Color.blue.opacity(0.05))
             }
         }
         .listStyle(.plain)
@@ -94,104 +108,170 @@ struct NotificationView: View {
         }
     }
     
-    private func deleteNotification(_ notification: AppNotification) {
+    private func clearAllNotifications() {
+        guard let userId = authViewModel.currentUser?.id else { return }
         Task {
-            await notificationViewModel.deleteNotification(notification: notification)
+            do {
+                try await NotificationService.shared.deleteAllNotifications(userId: userId)
+            } catch {
+                print("Error clearing notifications: \(error)")
+            }
         }
     }
     
-    private func deleteAllNotifications() {
-        guard let userId = authViewModel.currentUser?.id else { return }
+    private func deleteNotification(_ notification: AppNotification) {
+        guard let notificationId = notification.id else { return }
         Task {
-            await notificationViewModel.deleteAllNotifications(userId: userId)
+            do {
+                try await NotificationService.shared.deleteNotification(notificationId: notificationId)
+            } catch {
+                print("Error deleting notification: \(error)")
+            }
         }
     }
 }
 
-// MARK: - Notification Row
+// Replace your NotificationRowView struct with this improved version
+
 struct NotificationRowView: View {
     @EnvironmentObject var authViewModel: AuthViewModel
     @EnvironmentObject var notificationViewModel: NotificationViewModel
     @EnvironmentObject var friendshipViewModel: FriendshipViewModel
     
+    @State private var showingGameDetail = false
+    @State private var showingConversation = false
+    @State private var isProcessing = false
+    @State private var localActionTaken = false
+    
     let notification: AppNotification
     
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            // Icon
-            Image(systemName: getIcon())
-                .font(.title3)
-                .foregroundStyle(getIconColor())
-                .frame(width: 40, height: 40)
-                .background(getIconColor().opacity(0.1))
-                .clipShape(Circle())
-            
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    if let fromUserName = notification.fromUserName {
-                        Text(fromUserName)
-                            .font(.headline)
-                    } else {
-                        Text(notification.title)
-                            .font(.headline)
-                    }
-                    
-                    Spacer()
-                    
-                    if !notification.isRead {
-                        Circle()
-                            .fill(Color.blue)
-                            .frame(width: 8, height: 8)
-                    }
-                }
+        Button {
+            handleNotificationTap()
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                // Icon
+                Image(systemName: getIcon())
+                    .font(.title3)
+                    .foregroundStyle(getIconColor())
+                    .frame(width: 40, height: 40)
+                    .background(getIconColor().opacity(0.1))
+                    .clipShape(Circle())
                 
-                Text(notification.message)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                
-                Text(formatTimestamp(notification.timestamp))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                
-                // Action Buttons for Friend Requests
-                if notification.type == .friendRequest && !notification.actionTaken {
-                    HStack(spacing: 12) {
-                        Button {
-                            acceptFriendRequest()
-                        } label: {
-                            Text("Accept")
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 6)
-                                .background(Color.blue)
-                                .cornerRadius(8)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        if let fromUserName = notification.fromUserName {
+                            Text(fromUserName)
+                                .font(.headline)
+                        } else {
+                            Text(notification.title)
+                                .font(.headline)
                         }
                         
-                        Button {
-                            rejectFriendRequest()
-                        } label: {
-                            Text("Decline")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 6)
-                                .background(Color.gray.opacity(0.1))
-                                .cornerRadius(8)
+                        Spacer()
+                        
+                        if !notification.isRead {
+                            Circle()
+                                .fill(Color.blue)
+                                .frame(width: 8, height: 8)
                         }
                     }
-                    .padding(.top, 4)
+                    
+                    Text(notification.message)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                    
+                    Text(formatTimestamp(notification.timestamp))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    
+                    // Action Buttons for Friend Requests
+                    if notification.type == .friendRequest && !notification.actionTaken && !localActionTaken {
+                        HStack(spacing: 12) {
+                            Button {
+                                acceptFriendRequest()
+                            } label: {
+                                if isProcessing {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                        .frame(width: 20, height: 20)
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 6)
+                                } else {
+                                    Text("Accept")
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 6)
+                                }
+                            }
+                            .background(Color.blue)
+                            .cornerRadius(8)
+                            .disabled(isProcessing)
+                            
+                            Button {
+                                rejectFriendRequest()
+                            } label: {
+                                Text("Decline")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 6)
+                                    .background(Color.gray.opacity(0.1))
+                                    .cornerRadius(8)
+                            }
+                            .disabled(isProcessing)
+                        }
+                        .padding(.top, 4)
+                    } else if notification.type == .friendRequest && (notification.actionTaken || localActionTaken) {
+                        Text("Request handled")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 4)
+                    }
                 }
+            }
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showingGameDetail) {
+            if let gameId = notification.gameId {
+                GameDetailNavigationWrapper(gameId: gameId)
             }
         }
-        .padding(.vertical, 4)
-        .onTapGesture {
-            if !notification.isRead {
-                Task {
-                    await notificationViewModel.markAsRead(notification: notification)
-                }
+        .sheet(isPresented: $showingConversation) {
+            if let conversationId = notification.conversationId {
+                ChatView(conversationId: conversationId)
+                    .environmentObject(authViewModel)
             }
+        }
+    }
+    
+    private func handleNotificationTap() {
+        // Mark as read
+        if !notification.isRead, let notificationId = notification.id {
+            Task {
+                await notificationViewModel.markAsRead(notificationId: notificationId)
+            }
+        }
+        
+        // Navigate based on notification type
+        switch notification.type {
+        case .newMessage:
+            if notification.conversationId != nil {
+                showingConversation = true
+            }
+        case .gameUpdate, .gameReminder, .newGame:
+            if notification.gameId != nil {
+                showingGameDetail = true
+            }
+        case .friendRequest, .friendAccepted:
+            // Friend requests are handled by buttons in the notification
+            break
+        case .blocked:
+            break
         }
     }
     
@@ -251,26 +331,102 @@ struct NotificationRowView: View {
     
     private func acceptFriendRequest() {
         guard let currentUserId = authViewModel.currentUser?.id,
-              let friendshipId = notification.friendshipId else { return }
+              let friendshipId = notification.friendshipId else {
+            print("❌ Missing required data for accepting friend request")
+            return
+        }
         
-        // Need to get the friendship object
+        isProcessing = true
+        
         Task {
-            if let friendship = await friendshipViewModel.getFriendshipStatus(userId1: currentUserId, userId2: notification.fromUserId ?? "") {
-                await friendshipViewModel.acceptFriendRequest(friendship: friendship, currentUserId: currentUserId)
-                await notificationViewModel.markActionTaken(notification: notification)
+            print("✅ Accepting friend request - friendshipId: \(friendshipId)")
+            
+            await friendshipViewModel.acceptFriendRequest(
+                friendshipId: friendshipId,
+                userId: currentUserId
+            )
+            
+            // Mark action as taken in the notification
+            if let notificationId = notification.id {
+                try? await NotificationService.shared.markActionTaken(notificationId: notificationId)
+            }
+            
+            await MainActor.run {
+                localActionTaken = true
+                isProcessing = false
+                print("✅ Friend request accepted successfully")
             }
         }
     }
     
     private func rejectFriendRequest() {
-        guard let friendshipId = notification.friendshipId,
-              let currentUserId = authViewModel.currentUser?.id else { return }
+        guard let friendshipId = notification.friendshipId else {
+            print("❌ Missing friendshipId for declining friend request")
+            return
+        }
+        
+        isProcessing = true
         
         Task {
-            if let friendship = await friendshipViewModel.getFriendshipStatus(userId1: currentUserId, userId2: notification.fromUserId ?? "") {
-                await friendshipViewModel.rejectFriendRequest(friendship: friendship)
-                await notificationViewModel.markActionTaken(notification: notification)
+            print("🚫 Declining friend request - friendshipId: \(friendshipId)")
+            
+            await friendshipViewModel.declineFriendRequest(friendshipId: friendshipId)
+            
+            // Mark action as taken in the notification
+            if let notificationId = notification.id {
+                try? await NotificationService.shared.markActionTaken(notificationId: notificationId)
+            }
+            
+            await MainActor.run {
+                localActionTaken = true
+                isProcessing = false
+                print("✅ Friend request declined successfully")
             }
         }
     }
 }
+
+// MARK: - Game Detail Navigation Wrapper
+struct GameDetailNavigationWrapper: View {
+    let gameId: String
+    @State private var game: Game?
+    @State private var isLoading = true
+    @Environment(\.dismiss) var dismiss
+    
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    ProgressView()
+                } else if let game = game {
+                    GameDetailView(game: game)
+                } else {
+                    VStack(spacing: 16) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 50))
+                            .foregroundStyle(.orange)
+                        Text("Game not found")
+                            .font(.headline)
+                        Text("This game may have been deleted")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            // Remove extra close here; GameDetailView has its own Close button.
+            .task {
+                await loadGame()
+            }
+        }
+    }
+    
+    private func loadGame() async {
+        do {
+            game = try await GameService.shared.fetchGame(gameId: gameId)
+        } catch {
+            print("Error loading game: \(error)")
+        }
+        isLoading = false
+    }
+}
+

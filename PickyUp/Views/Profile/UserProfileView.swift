@@ -3,12 +3,13 @@
 //
 // Views/Profile/UserProfileView.swift
 //
-// Last Updated 11/4/25
+// Last Updated 11/19/25
 
 import SwiftUI
 
 struct UserProfileView: View {
-    let user: User
+    let user: AppUser
+    
     @EnvironmentObject var authViewModel: AuthViewModel
     @EnvironmentObject var friendshipViewModel: FriendshipViewModel
     @EnvironmentObject var messagingViewModel: MessagingViewModel
@@ -19,9 +20,12 @@ struct UserProfileView: View {
     @State private var showingUserSettings = false
     @State private var showingMoreOptions = false
     @State private var showBlockConfirmation = false
+    @State private var showUnfriendConfirmation = false
     @State private var statusMessage: String?
     @State private var showingConversation = false
     @State private var conversationId: String?
+    @State private var userGames: [Game] = []
+    @State private var isLoadingGames = true
     
     var currentUserId: String {
         authViewModel.currentUser?.id ?? ""
@@ -39,106 +43,37 @@ struct UserProfileView: View {
         friendshipStatus?.status == .pending
     }
     
+    var isPendingOutgoing: Bool {
+        guard let friendship = friendshipStatus, friendship.status == .pending else { return false }
+        return friendship.requesterId == currentUserId
+    }
+    
+    var isPendingIncoming: Bool {
+        guard let friendship = friendshipStatus, friendship.status == .pending else { return false }
+        return friendship.requesterId != currentUserId
+    }
+    
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Profile Header
-                    VStack(spacing: 12) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.blue.gradient)
-                                .frame(width: 100, height: 100)
-                            
-                            Text(user.initials)
-                                .font(.system(size: 40, weight: .semibold))
-                                .foregroundStyle(.white)
-                        }
-                        
-                        Text(user.displayName)
-                            .font(.title2)
-                            .fontWeight(.bold)
-                        
-                        Text(user.email)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.top)
-                    
-                    // Action Buttons
-                    if !isBlocked {
-                        HStack(spacing: 16) {
-                            // Add Friend / Already Friends Button
-                            if !isFriend && !isPending {
-                                Button {
-                                    Task { await sendFriendRequest() }
-                                } label: {
-                                    Label("Add Friend", systemImage: "person.badge.plus")
-                                        .frame(maxWidth: .infinity)
-                                        .padding()
-                                        .background(Color.blue)
-                                        .foregroundStyle(.white)
-                                        .cornerRadius(10)
-                                }
-                                .disabled(isLoading)
-                            } else if isPending {
-                                Button {} label: {
-                                    Label("Pending", systemImage: "clock")
-                                        .frame(maxWidth: .infinity)
-                                        .padding()
-                                        .background(Color.gray)
-                                        .foregroundStyle(.white)
-                                        .cornerRadius(10)
-                                }
-                                .disabled(true)
-                            }
-                            
-                            // Message Button
-                            Button {
-                                Task { await openConversation() }
-                            } label: {
-                                Label("Message", systemImage: "message")
-                                    .frame(maxWidth: .infinity)
-                                    .padding()
-                                    .background(Color.green)
-                                    .foregroundStyle(.white)
-                                    .cornerRadius(10)
-                            }
-                            .disabled(isLoading)
-                        }
-                        .padding(.horizontal)
-                    } else {
-                        Text("This user is blocked")
-                            .foregroundStyle(.red)
-                            .padding()
-                    }
-                    
-                    // Status Message
-                    if let message = statusMessage {
-                        Text(message)
-                            .font(.caption)
-                            .padding(.horizontal)
-                            .padding(.vertical, 8)
-                            .background(Color.green.opacity(0.2))
-                            .cornerRadius(8)
-                            .padding(.horizontal)
-                    }
-                    
-                    Spacer()
-                }
-                .padding(.vertical)
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showingMoreOptions = true
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.title3)
-                    }
-                }
-            }
+            UserProfileContentView(
+                user: user,
+                friendshipStatus: friendshipStatus,
+                isBlocked: isBlocked,
+                isFriend: isFriend,
+                isPendingOutgoing: isPendingOutgoing,
+                isPendingIncoming: isPendingIncoming,
+                isLoading: isLoading,
+                statusMessage: statusMessage,
+                userGames: userGames,
+                isLoadingGames: isLoadingGames,
+                showingUserSettings: $showingUserSettings,
+                showingMoreOptions: $showingMoreOptions,
+                showBlockConfirmation: $showBlockConfirmation,
+                showUnfriendConfirmation: $showUnfriendConfirmation,
+                showingConversation: $showingConversation,
+                conversationId: conversationId,
+                parentView: self
+            )
             .sheet(isPresented: $showingUserSettings) {
                 UserSettingsSheet(targetUser: user, friendship: friendshipStatus)
                     .environmentObject(authViewModel)
@@ -147,6 +82,12 @@ struct UserProfileView: View {
                 if isFriend {
                     Button("User Settings") {
                         showingUserSettings = true
+                    }
+                }
+                
+                if isFriend {
+                    Button("Unfriend", role: .destructive) {
+                        showUnfriendConfirmation = true
                     }
                 }
                 
@@ -168,6 +109,14 @@ struct UserProfileView: View {
             } message: {
                 Text("You won't see each other's games, and you won't be able to search or message each other.")
             }
+            .alert("Unfriend User?", isPresented: $showUnfriendConfirmation) {
+                Button("Cancel", role: .cancel) {}
+                Button("Unfriend", role: .destructive) {
+                    Task { await unfriendUser() }
+                }
+            } message: {
+                Text("You will no longer be friends with \(user.displayName).")
+            }
             .sheet(isPresented: $showingConversation) {
                 if let convId = conversationId {
                     ChatView(conversationId: convId)
@@ -177,94 +126,293 @@ struct UserProfileView: View {
             }
             .task {
                 await fetchFriendshipStatus()
+                await fetchUserGames()
+            }
+            .onChange(of: friendshipViewModel.friends) { _, _ in
+                Task { await fetchFriendshipStatus() }
+            }
+            .onChange(of: friendshipViewModel.pendingRequests) { _, _ in
+                Task { await fetchFriendshipStatus() }
             }
         }
     }
     
     // MARK: - Actions
-    
-    func fetchFriendshipStatus() async {
-        guard let userId = authViewModel.currentUser?.id else { return }
-        do {
-            friendshipStatus = try await FriendshipService.shared.getFriendshipStatus(userId1: userId, userId2: user.id ?? "")
-        } catch {
-            print("Error fetching friendship status: \(error)")
-        }
-    }
-    
-    func sendFriendRequest() async {
-        guard let userId = authViewModel.currentUser?.id,
-              let targetId = user.id else { return }
-        
-        isLoading = true
-        do {
-            _ = try await FriendshipService.shared.sendFriendRequest(from: userId, to: targetId)
-            await fetchFriendshipStatus()
-            showStatus("Friend request sent!")
-        } catch {
-            showStatus(error.localizedDescription)
-        }
-        isLoading = false
-    }
-    
     func blockUser() async {
-        guard let userId = authViewModel.currentUser?.id,
-              let targetId = user.id else { return }
-        
+        guard let targetId = user.id, !currentUserId.isEmpty else { return }
         isLoading = true
         do {
-            try await FriendshipService.shared.blockUser(currentUserId: userId, targetUserId: targetId)
+            try await FriendshipService.shared.blockUser(currentUserId: currentUserId, targetUserId: targetId)
+            statusMessage = "User blocked."
             await fetchFriendshipStatus()
-            showStatus("\(user.displayName) blocked!")
         } catch {
-            showStatus("Error blocking user")
+            statusMessage = "Failed to block: \(error.localizedDescription)"
         }
         isLoading = false
     }
     
     func unblockUser() async {
-        guard let friendshipId = friendshipStatus?.id else { return }
-        
+        guard let targetId = user.id, !currentUserId.isEmpty else { return }
+        let friendshipId = Friendship.generateId(userId1: currentUserId, userId2: targetId)
         isLoading = true
         do {
-            try await FriendshipService.shared.unblockUser(friendshipId: friendshipId)
+            try await FriendshipService.shared.unblockUser(friendshipId: friendshipId, userId: currentUserId)
+            statusMessage = "User unblocked."
             await fetchFriendshipStatus()
-            showStatus("\(user.displayName) unblocked")
         } catch {
-            showStatus("Error unblocking user")
+            statusMessage = "Failed to unblock: \(error.localizedDescription)"
         }
         isLoading = false
     }
     
-    func openConversation() async {
-        guard let currentUser = authViewModel.currentUser,
-              let userId = currentUser.id,
-              let targetId = user.id else { return }
-        
+    func unfriendUser() async {
+        guard let targetId = user.id, !currentUserId.isEmpty else { return }
+        let friendshipId = Friendship.generateId(userId1: currentUserId, userId2: targetId)
         isLoading = true
         do {
-            let convId = try await MessagingService.shared.getOrCreateDirectConversation(
-                userId1: userId,
-                userId2: targetId,
-                user1Name: currentUser.displayName,
-                user2Name: user.displayName
-            )
-            conversationId = convId
-            showingConversation = true
+            try await FriendshipService.shared.removeFriend(friendshipId: friendshipId, userId: currentUserId)
+            statusMessage = "Removed from friends."
+            await fetchFriendshipStatus()
         } catch {
-            if isBlocked {
-                showStatus("Unexpected error")
-            } else {
-                showStatus("Error opening conversation")
+            statusMessage = "Failed to remove friend: \(error.localizedDescription)"
+        }
+        isLoading = false
+    }
+    
+    func fetchFriendshipStatus() async {
+        guard let targetId = user.id, !currentUserId.isEmpty else { return }
+        isLoading = true
+        do {
+            let status = try await FriendshipService.shared.getFriendshipStatus(userId1: currentUserId, userId2: targetId)
+            await MainActor.run {
+                friendshipStatus = status
+            }
+        } catch {
+            await MainActor.run {
+                statusMessage = "Failed to load friendship: \(error.localizedDescription)"
             }
         }
         isLoading = false
     }
     
-    func showStatus(_ message: String) {
-        statusMessage = message
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            statusMessage = nil
+    func fetchUserGames() async {
+        await MainActor.run {
+            userGames = []
+            isLoadingGames = false
+        }
+    }
+}
+
+// MARK: - Profile Header
+struct ProfileHeaderView: View {
+    let user: AppUser
+    let isBlocked: Bool
+    let isFriend: Bool
+    let isPendingOutgoing: Bool
+    let isPendingIncoming: Bool
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            ZStack {
+                if let urlString = user.profilePhotoURL, let url = URL(string: urlString) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView()
+                                .frame(width: 100, height: 100)
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 100, height: 100)
+                                .clipShape(Circle())
+                        case .failure:
+                            initialsCircle
+                        @unknown default:
+                            initialsCircle
+                        }
+                    }
+                } else {
+                    initialsCircle
+                }
+            }
+            
+            Text(user.displayName)
+                .font(.title2)
+                .fontWeight(.bold)
+            
+            Text(user.email)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            
+            FriendshipStatusPill(
+                isBlocked: isBlocked,
+                isFriend: isFriend,
+                isPendingOutgoing: isPendingOutgoing,
+                isPendingIncoming: isPendingIncoming
+            )
+        }
+        .padding(.top)
+    }
+    
+    private var initialsCircle: some View {
+        ZStack {
+            Circle()
+                .fill(Color.blue.gradient)
+                .frame(width: 100, height: 100)
+            
+            Text(user.initials)
+                .font(.system(size: 40, weight: .semibold))
+                .foregroundStyle(.white)
+        }
+    }
+}
+
+struct FriendshipStatusPill: View {
+    let isBlocked: Bool
+    let isFriend: Bool
+    let isPendingOutgoing: Bool
+    let isPendingIncoming: Bool
+    
+    var body: some View {
+        Group {
+            if isBlocked {
+                Text("Blocked")
+                    .padding(6)
+                    .background(Color.red.opacity(0.15))
+                    .foregroundStyle(.red)
+                    .clipShape(Capsule())
+            } else if isFriend {
+                Text("Friends")
+                    .padding(6)
+                    .background(Color.green.opacity(0.15))
+                    .foregroundStyle(.green)
+                    .clipShape(Capsule())
+            } else if isPendingOutgoing {
+                Text("Request Sent")
+                    .padding(6)
+                    .background(Color.orange.opacity(0.15))
+                    .foregroundStyle(.orange)
+                    .clipShape(Capsule())
+            } else if isPendingIncoming {
+                Text("Request Received")
+                    .padding(6)
+                    .background(Color.blue.opacity(0.15))
+                    .foregroundStyle(.blue)
+                    .clipShape(Capsule())
+            } else {
+                EmptyView()
+            }
+        }
+    }
+}
+
+struct UserProfileContentView: View {
+    let user: AppUser
+    let friendshipStatus: Friendship?
+    let isBlocked: Bool
+    let isFriend: Bool
+    let isPendingOutgoing: Bool
+    let isPendingIncoming: Bool
+    let isLoading: Bool
+    let statusMessage: String?
+    let userGames: [Game]
+    let isLoadingGames: Bool
+    
+    @Binding var showingUserSettings: Bool
+    @Binding var showingMoreOptions: Bool
+    @Binding var showBlockConfirmation: Bool
+    @Binding var showUnfriendConfirmation: Bool
+    @Binding var showingConversation: Bool
+    let conversationId: String?
+    
+    let parentView: UserProfileView
+    
+    var body: some View {
+        List {
+            Section {
+                ProfileHeaderView(
+                    user: user,
+                    isBlocked: isBlocked,
+                    isFriend: isFriend,
+                    isPendingOutgoing: isPendingOutgoing,
+                    isPendingIncoming: isPendingIncoming
+                )
+                .frame(maxWidth: .infinity)
+                .listRowInsets(EdgeInsets())
+            }
+            
+            if let msg = statusMessage {
+                Section {
+                    Text(msg)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            
+            Section("Actions") {
+                if !isBlocked {
+                    if isFriend {
+                        Button {
+                            showingMoreOptions = true
+                        } label: {
+                            Label("More Options", systemImage: "ellipsis.circle")
+                        }
+                    } else if isPendingIncoming {
+                        HStack {
+                            Text("Friend request pending")
+                            Spacer()
+                        }
+                    } else if isPendingOutgoing {
+                        HStack {
+                            Text("Friend request sent")
+                            Spacer()
+                        }
+                    } else {
+                        Button {
+                            showingMoreOptions = true
+                        } label: {
+                            Label("Options", systemImage: "ellipsis.circle")
+                        }
+                    }
+                } else {
+                    Button(role: .destructive) {
+                        Task { await parentView.unblockUser() }
+                    } label: {
+                        Label("Unblock", systemImage: "hand.raised.slash")
+                    }
+                }
+            }
+            
+            Section("Games") {
+                if isLoadingGames {
+                    ProgressView()
+                } else if userGames.isEmpty {
+                    Text("No games to show")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(userGames) { game in
+                        VStack(alignment: .leading) {
+                            Text(game.displaySportName)
+                                .font(.headline)
+                            Text(game.location.address)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle(user.displayName)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showingMoreOptions = true
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
         }
     }
 }

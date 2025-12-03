@@ -1,264 +1,112 @@
 //
-// FriendshipViewModel.swift
+//  FriendshipViewModel.swift
+//  PickyUp
 //
-// ViewModels/FriendshipViewModel.swift
+//  Created by dawid on 11/4/25
+//  Updated 11/11/25
 //
-// Last Updated 11/4/25
 
-import Foundation
+import SwiftUI
 import FirebaseFirestore
 
 @MainActor
 class FriendshipViewModel: ObservableObject {
     @Published var friends: [Friendship] = []
     @Published var pendingRequests: [Friendship] = []
-    @Published var friendUsers: [String: User] = [:]  // userId: User
-    @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var successMessage: String?
-    
-    private let friendshipService = FriendshipService.shared
-    private let userService = UserService.shared
+
     private var friendsListener: ListenerRegistration?
+    private var pendingListener: ListenerRegistration?
     
-    deinit {
-        friendsListener?.remove()
-    }
+    init() {}
     
-    // MARK: - Setup Listener
-    func setupFriendsListener(userId: String) {
-        friendsListener = friendshipService.listenToFriends(userId: userId) { [weak self] friendships in
-            Task { @MainActor in
-                self?.friends = friendships
-                await self?.fetchFriendUsers(friendships: friendships, currentUserId: userId)
-            }
-        }
-    }
-    
-    // MARK: - Fetch Friend Users
-    private func fetchFriendUsers(friendships: [Friendship], currentUserId: String) async {
-        let userIds = friendships.map { $0.otherUserId(currentUserId: currentUserId) }
-        
+    func blockUser(currentUserId: String, targetUserId: String) async {
         do {
-            let users = try await userService.getUsers(userIds: userIds)
-            var userDict: [String: User] = [:]
-            for user in users {
-                if let userId = user.id {
-                    userDict[userId] = user
-                }
-            }
-            friendUsers = userDict
+            try await FriendshipService.shared.blockUser(currentUserId: currentUserId, targetUserId: targetUserId)
+            successMessage = "User blocked."
         } catch {
-            print("Error fetching friend users: \(error.localizedDescription)")
+            errorMessage = error.localizedDescription
         }
     }
     
-    // MARK: - Send Friend Request
-    func sendFriendRequest(to userId: String, from currentUserId: String) async {
-        isLoading = true
-        errorMessage = nil
-        successMessage = nil
+    
+    // MARK: - Listeners
+    func startListening(userId: String) {
+        removeListeners()
         
+        friendsListener = FriendshipService.shared.listenToFriends(userId: userId) { [weak self] friends in
+            self?.friends = friends
+        }
+        
+        pendingListener = FriendshipService.shared.listenToPendingRequests(userId: userId) { [weak self] pending in
+            self?.pendingRequests = pending
+        }
+    }
+    
+    func removeListeners() {
+        friendsListener?.remove()
+        pendingListener?.remove()
+        friendsListener = nil
+        pendingListener = nil
+    }
+    
+    // MARK: - Friend Requests
+    func sendFriendRequest(to recipientId: String, from userId: String) async {
         do {
-            _ = try await friendshipService.sendFriendRequest(from: currentUserId, to: userId)
+            try await FriendshipService.shared.sendFriendRequest(from: userId, to: recipientId)
             successMessage = "Friend request sent!"
         } catch {
-            if error.localizedDescription.contains("Already friends") {
-                errorMessage = "You're already friends!"
-            } else if error.localizedDescription.contains("already sent") {
-                errorMessage = "Friend request already sent!"
-            } else if error.localizedDescription.contains("blocked") {
-                errorMessage = "Cannot send friend request"
-            } else {
-                errorMessage = error.localizedDescription
-            }
-        }
-        
-        isLoading = false
-        
-        // Clear success message after 3 seconds
-        if successMessage != nil {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            successMessage = nil
-        }
-    }
-    
-    // MARK: - Accept Friend Request
-    func acceptFriendRequest(friendship: Friendship, currentUserId: String) async {
-        guard let friendshipId = friendship.id else { return }
-        
-        isLoading = true
-        errorMessage = nil
-        
-        do {
-            try await friendshipService.acceptFriendRequest(friendshipId: friendshipId, userId: currentUserId)
-            
-            // Remove from pending requests
-            pendingRequests.removeAll { $0.id == friendshipId }
-            
-            // Get other user's name for success message
-            let otherUserId = friendship.otherUserId(currentUserId: currentUserId)
-            if let userName = friendUsers[otherUserId]?.displayName {
-                successMessage = "Added \(userName) as a friend!"
-            } else {
-                successMessage = "Friend request accepted!"
-            }
-            
-        } catch {
             errorMessage = error.localizedDescription
         }
-        
-        isLoading = false
-        
-        // Clear success message after 3 seconds
-        if successMessage != nil {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            successMessage = nil
-        }
     }
     
-    // MARK: - Reject Friend Request
-    func rejectFriendRequest(friendship: Friendship) async {
-        guard let friendshipId = friendship.id else { return }
-        
-        isLoading = true
-        errorMessage = nil
-        
+    func acceptFriendRequest(friendshipId: String, userId: String) async {
         do {
-            try await friendshipService.rejectFriendRequest(friendshipId: friendshipId)
-            
-            // Remove from pending requests
-            pendingRequests.removeAll { $0.id == friendshipId }
-            
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-        
-        isLoading = false
-    }
-    
-    // MARK: - Remove Friend
-    func removeFriend(friendship: Friendship, currentUserId: String) async {
-        guard let friendshipId = friendship.id else { return }
-        
-        isLoading = true
-        errorMessage = nil
-        
-        do {
-            try await friendshipService.removeFriend(friendshipId: friendshipId)
-            
-            // Remove from friends list
-            friends.removeAll { $0.id == friendshipId }
-            
-            // Get other user's name for success message
-            let otherUserId = friendship.otherUserId(currentUserId: currentUserId)
-            if let userName = friendUsers[otherUserId]?.displayName {
-                successMessage = "Removed \(userName) from friends"
-            }
-            
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-        
-        isLoading = false
-        
-        // Clear success message after 3 seconds
-        if successMessage != nil {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            successMessage = nil
-        }
-    }
-    
-    // MARK: - Block User
-    func blockUser(userId: String, currentUserId: String, userName: String) async {
-        isLoading = true
-        errorMessage = nil
-        
-        do {
-            try await friendshipService.blockUser(currentUserId: currentUserId, targetUserId: userId)
-            successMessage = "\(userName) blocked!"
-            
-            // Remove from friends if they were friends
-            friends.removeAll { friendship in
-                friendship.userId1 == userId || friendship.userId2 == userId
-            }
-            
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-        
-        isLoading = false
-        
-        // Clear success message after 3 seconds
-        if successMessage != nil {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            successMessage = nil
-        }
-    }
-    
-    // MARK: - Unblock User
-    func unblockUser(userId: String, currentUserId: String) async {
-        let sortedIds = [currentUserId, userId].sorted()
-        let friendshipId = "\(sortedIds[0])_\(sortedIds[1])"
-        
-        isLoading = true
-        errorMessage = nil
-        
-        do {
-            try await friendshipService.unblockUser(friendshipId: friendshipId)
-            successMessage = "User unblocked"
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-        
-        isLoading = false
-    }
-    
-    // MARK: - Get Friendship Status
-    func getFriendshipStatus(userId1: String, userId2: String) async -> Friendship? {
-        do {
-            return try await friendshipService.getFriendshipStatus(userId1: userId1, userId2: userId2)
-        } catch {
-            return nil
-        }
-    }
-    
-    // MARK: - Fetch Pending Requests
-    func fetchPendingRequests(userId: String) async {
-        do {
-            let requests = try await friendshipService.getPendingRequests(userId: userId)
-            pendingRequests = requests
-            
-            // Fetch users for pending requests
-            let userIds = requests.map { $0.requesterId }
-            let users = try await userService.getUsers(userIds: userIds)
-            
-            var userDict: [String: User] = [:]
-            for user in users {
-                if let userId = user.id {
-                    userDict[userId] = user
-                }
-            }
-            
-            // Merge with existing friend users
-            friendUsers.merge(userDict) { _, new in new }
-            
+            try await FriendshipService.shared.acceptFriendRequest(friendshipId: friendshipId, userId: userId)
+            successMessage = "Friend request accepted!"
         } catch {
             errorMessage = error.localizedDescription
         }
     }
     
-    // MARK: - Check if Friends
-    func areFriends(userId1: String, userId2: String) -> Bool {
-        return friends.contains { friendship in
-            (friendship.userId1 == userId1 && friendship.userId2 == userId2) ||
-            (friendship.userId1 == userId2 && friendship.userId2 == userId1)
+    func declineFriendRequest(friendshipId: String) async {
+        do {
+            try await FriendshipService.shared.declineFriendRequest(friendshipId: friendshipId)
+            successMessage = "Friend request declined."
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
     
-    // MARK: - Clear Messages
-    func clearMessages() {
-        errorMessage = nil
-        successMessage = nil
+    func removeFriend(friendshipId: String, userId: String) async {
+        do {
+            try await FriendshipService.shared.removeFriend(friendshipId: friendshipId, userId: userId)
+            successMessage = "Friend removed."
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+    
+    func unblockUser(friendshipId: String, userId: String) async {
+        do {
+            try await FriendshipService.shared.unblockUser(friendshipId: friendshipId, userId: userId)
+            successMessage = "User unblocked."
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+    
+    // MARK: - Helpers
+    func otherUserId(for friendship: Friendship, currentUserId: String) -> String {
+        return friendship.otherUserId(currentUserId: currentUserId)
+    }
+    
+    func isRequester(_ friendship: Friendship, userId: String) -> Bool {
+        return friendship.isRequester(userId: userId)
+    }
+    
+    func isReceiver(_ friendship: Friendship, userId: String) -> Bool {
+        return friendship.isReceiver(userId: userId)
     }
 }

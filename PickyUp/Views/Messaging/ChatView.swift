@@ -3,7 +3,7 @@
 //
 // Views/Messaging/ChatView.swift
 //
-// Last Updated 11/4/25
+// Last Updated 11/19/25
 
 import SwiftUI
 
@@ -17,9 +17,12 @@ struct ChatView: View {
     @State private var messageText = ""
     @State private var conversation: Conversation?
     
+    @State private var showingProfile = false
+    @State private var targetUser: AppUser?
+    @State private var isLoadingProfile = false
+    
     var body: some View {
         VStack(spacing: 0) {
-            // Messages List
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 12) {
@@ -42,7 +45,6 @@ struct ChatView: View {
                 }
             }
             
-            // Message Input
             HStack(spacing: 12) {
                 TextField("Message", text: $messageText, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
@@ -62,6 +64,26 @@ struct ChatView: View {
         }
         .navigationTitle(getConversationTitle())
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if isDirectMessage, targetUserId != nil {
+                    Button {
+                        Task { await openOtherUserProfile() }
+                    } label: {
+                        Image(systemName: "person.crop.circle")
+                    }
+                    .disabled(isLoadingProfile)
+                    .accessibilityLabel("View Profile")
+                }
+            }
+        }
+        .sheet(isPresented: $showingProfile) {
+            if let user = targetUser {
+                UserProfileView(user: user)
+                    .environmentObject(authViewModel)
+                    .environmentObject(messagingViewModel)
+            }
+        }
         .onAppear {
             messagingViewModel.setupMessagesListener(conversationId: conversationId)
             loadConversation()
@@ -69,6 +91,16 @@ struct ChatView: View {
         .onDisappear {
             messagingViewModel.clearSelection()
         }
+    }
+    
+    private var isDirectMessage: Bool {
+        conversation?.type == .directMessage
+    }
+    
+    private var targetUserId: String? {
+        guard let currentId = authViewModel.currentUser?.id,
+              let conv = conversation else { return nil }
+        return conv.otherUserId(currentUserId: currentId)
     }
     
     private func loadConversation() {
@@ -86,6 +118,21 @@ struct ChatView: View {
         case .gameAnnouncement:
             return conv.groupName ?? "Game Chat"
         }
+    }
+    
+    private func openOtherUserProfile() async {
+        guard let otherId = targetUserId else { return }
+        isLoadingProfile = true
+        do {
+            let user = try await UserService.shared.fetchUser(userId: otherId)
+            await MainActor.run {
+                self.targetUser = user
+                self.showingProfile = true
+            }
+        } catch {
+            print("Error loading user profile: \(error)")
+        }
+        isLoadingProfile = false
     }
     
     private func sendMessage() {

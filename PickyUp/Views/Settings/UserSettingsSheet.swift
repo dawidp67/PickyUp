@@ -6,10 +6,13 @@
 // Last Updated 11/4/25
 
 import SwiftUI
+import FirebaseAuth
 
 struct UserSettingsSheet: View {
-    let targetUser: User
+    let targetUser: AppUser
     let friendship: Friendship?
+    let currentUserId = Auth.auth().currentUser?.uid ?? ""
+
     @EnvironmentObject var authViewModel: AuthViewModel
     @Environment(\.dismiss) var dismiss
     
@@ -27,7 +30,6 @@ struct UserSettingsSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                // Messages Settings
                 Section("Messages") {
                     Toggle("Direct Messages", isOn: $allowDirectMessages)
                         .onChange(of: allowDirectMessages) { _, _ in
@@ -40,7 +42,6 @@ struct UserSettingsSheet: View {
                         }
                 }
                 
-                // Games Settings
                 Section("Games") {
                     Toggle("Show Games", isOn: $showGames)
                         .onChange(of: showGames) { _, _ in
@@ -48,7 +49,7 @@ struct UserSettingsSheet: View {
                         }
                     
                     Toggle("Add as Collaborator", isOn: $canCollaborate)
-                        .disabled(true)  // To be implemented later
+                        .disabled(true)
                         .onChange(of: canCollaborate) { _, _ in
                             Task { await saveSettings() }
                         }
@@ -58,16 +59,14 @@ struct UserSettingsSheet: View {
                         .foregroundStyle(.secondary)
                 }
                 
-                // Notifications Settings
                 Section("Notifications") {
                     Toggle("Notify for New Games", isOn: .constant(true))
-                        .disabled(true)  // To be implemented
+                        .disabled(true)
                     
                     Toggle("Notify for Messages", isOn: .constant(true))
-                        .disabled(true)  // To be implemented
+                        .disabled(true)
                 }
                 
-                // Manage Friendship
                 Section {
                     Button(role: .destructive) {
                         if isFriend {
@@ -94,10 +93,8 @@ struct UserSettingsSheet: View {
             .navigationTitle("User Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
+                ToolbarItem(placement: .topBarTrailing) {
+                    CloseToolbarButton()
                 }
             }
             .alert("Remove Friend?", isPresented: $showRemoveFriendConfirmation) {
@@ -118,9 +115,6 @@ struct UserSettingsSheet: View {
         guard let userId = authViewModel.currentUser?.id,
               let targetId = targetUser.id else { return }
         
-        // Load privacy settings from Firestore
-        // This would fetch from a subcollection like users/{userId}/privacySettings/{targetId}
-        // For now, using defaults
         allowDirectMessages = true
         allowGroupMessages = true
         showGames = true
@@ -140,7 +134,7 @@ struct UserSettingsSheet: View {
             canCollaborate: canCollaborate
         )
         
-        // Save to Firestore - implement in UserService
+        // Persist via UserService if/when implemented
         // try? await UserService.shared.updatePrivacySettings(privacySettings)
     }
     
@@ -149,7 +143,7 @@ struct UserSettingsSheet: View {
         
         isLoading = true
         do {
-            try await FriendshipService.shared.removeFriend(friendshipId: friendshipId)
+            try await FriendshipService.shared.removeFriend(friendshipId: friendshipId, userId: currentUserId)
             dismiss()
         } catch {
             print("Error removing friend: \(error)")

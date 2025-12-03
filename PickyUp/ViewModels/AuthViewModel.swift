@@ -5,8 +5,9 @@ import FirebaseAuth
 
 @MainActor
 class AuthViewModel: ObservableObject {
+    static let shared = AuthViewModel()
     @Published var isAuthenticated = false
-    @Published var currentUser: User?
+    @Published var currentUser: AppUser?
     @Published var isLoading = false
     @Published var errorMessage: String?
     
@@ -100,6 +101,17 @@ class AuthViewModel: ObservableObject {
     
     func updatePassword(newPassword: String) async throws {
         try await authService.updatePassword(newPassword: newPassword)
+    }
+    
+    // MARK: - Reauthenticate User
+    func reauthenticate(with password: String) async throws {
+        guard let user = Auth.auth().currentUser,
+              let email = user.email else {
+            throw NSError(domain: "AuthViewModel", code: -1, userInfo: [NSLocalizedDescriptionKey: "No user logged in"])
+        }
+        
+        let credential = EmailAuthProvider.credential(withEmail: email, password: password)
+        try await user.reauthenticate(with: credential)
     }
     
     func updateDisplayName(newDisplayName: String) async throws {

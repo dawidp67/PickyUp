@@ -9,6 +9,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var authViewModel: AuthViewModel
+    @EnvironmentObject var themeManager: ThemeManager
     @Environment(\.dismiss) var dismiss
     @StateObject private var settingsViewModel = SettingsViewModel()
     
@@ -30,7 +31,14 @@ struct SettingsView: View {
                         Text("System").tag(UserSettings.AppTheme.system)
                     }
                     .onChange(of: selectedTheme) { _, newValue in
-                        Task { await updateSettings() }
+                        // Update app theme immediately
+                        themeManager.currentTheme = mapToAppTheme(newValue)
+                        // Persist only the theme change
+                        Task {
+                            if let userId = authViewModel.currentUser?.id {
+                                try? await settingsViewModel.updateTheme(userId: userId, theme: newValue)
+                            }
+                        }
                     }
                     
                     Picker("Map Pin Style", selection: $selectedMapPinStyle) {
@@ -39,7 +47,12 @@ struct SettingsView: View {
                         Text("📍 Default Pin").tag(UserSettings.MapPinStyle.defaultPin)
                     }
                     .onChange(of: selectedMapPinStyle) { _, newValue in
-                        Task { await updateSettings() }
+                        // Persist only the map pin change
+                        Task {
+                            if let userId = authViewModel.currentUser?.id {
+                                try? await settingsViewModel.updateMapPinStyle(userId: userId, style: newValue)
+                            }
+                        }
                     }
                 }
                 
@@ -106,7 +119,12 @@ struct SettingsView: View {
                 await loadSettings()
             }
         }
+        // Apply theme locally so this screen updates instantly too
+        .preferredColorScheme(themeManager.currentTheme.colorScheme)
+        .tint(themeManager.currentAccentColor.color)
     }
+    
+    // MARK: - Load and Update
     
     func loadSettings() async {
         guard let userId = authViewModel.currentUser?.id else { return }
@@ -119,6 +137,9 @@ struct SettingsView: View {
             notifyMessages = settings.notifyMessages
             notifyFriendRequests = settings.notifyFriendRequests
             showGamesPublicly = settings.defaultShowGames
+            
+            // Reflect persisted theme immediately in the UI
+            themeManager.currentTheme = mapToAppTheme(settings.theme)
         } catch {
             print("Error loading settings: \(error)")
         }
@@ -143,7 +164,16 @@ struct SettingsView: View {
             try await settingsViewModel.updateSettings(settings)
         } catch {
             print("Error updating settings: \(error)")
-            
+        }
+    }
+    
+    // MARK: - Mapping
+    
+    private func mapToAppTheme(_ theme: UserSettings.AppTheme) -> AppTheme {
+        switch theme {
+        case .light: return .light
+        case .dark: return .dark
+        case .system: return .system
         }
     }
 }

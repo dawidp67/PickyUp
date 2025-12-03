@@ -107,6 +107,7 @@ struct CreateGameView: View {
             .navigationTitle("Create Game")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // Keep a single close path: use Cancel on the leading side, remove extra X.
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()
@@ -216,6 +217,7 @@ struct MapPickerView: View {
             .navigationTitle("Select Location")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // Keep Cancel/Done only; remove extra X to avoid duplicate close
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()
@@ -252,3 +254,4 @@ struct MapPickerView: View {
         }
     }
 }
+

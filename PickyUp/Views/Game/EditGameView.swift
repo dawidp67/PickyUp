@@ -31,10 +31,10 @@ struct EditGameView: View {
                     
                     Picker("Duration", selection: $duration) {
                         Text("30 min").tag(30)
-                        Text("1 hour").tag(60)
-                        Text("1.5 hours").tag(90)
-                        Text("2 hours").tag(120)
-                        Text("3 hours").tag(180)
+                        Text("60 min").tag(60)
+                        Text("90 min").tag(90)
+                        Text("120 min").tag(120)
+                        Text("180 min").tag(180)
                     }
                 }
                 

@@ -3,7 +3,7 @@
 //
 // Views/Messaging/MessagingView.swift
 //
-// Last Updated 11/4/25
+// Last Updated 11/7/25
 
 import SwiftUI
 
@@ -61,6 +61,13 @@ struct MessagingView: View {
                     .environmentObject(messagingViewModel)
                     .environmentObject(friendshipViewModel)
             }
+            .onAppear {
+                setupMessagingListener()
+            }
+            .refreshable {
+                // Pull to refresh - re-setup listener
+                setupMessagingListener()
+            }
         }
     }
     
@@ -104,6 +111,12 @@ struct MessagingView: View {
         .padding()
     }
     
+    private func setupMessagingListener() {
+        guard let userId = authViewModel.currentUser?.id else { return }
+        messagingViewModel.setupConversationsListener(userId: userId)
+        print("📱 Set up conversations listener for user: \(userId)")
+    }
+    
     private func deleteConversations(at offsets: IndexSet) {
         for index in offsets {
             let conversation = messagingViewModel.conversations[index]
@@ -130,7 +143,7 @@ struct ConversationRowView: View {
                 .overlay {
                     Text(getInitials())
                         .font(.headline)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(.primary) // changed from .blue to adaptive
                 }
             
             VStack(alignment: .leading, spacing: 4) {
@@ -195,3 +208,4 @@ struct ConversationRowView: View {
         }
     }
 }
+

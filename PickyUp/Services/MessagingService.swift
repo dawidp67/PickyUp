@@ -3,7 +3,7 @@
 //
 // Services/MessagingService.swift
 //
-// Last Updated 11/4/25
+// Last Updated 11/16/25
 
 import Foundation
 import FirebaseFirestore
@@ -135,6 +135,26 @@ class MessagingService {
             "lastMessageTimestamp": Timestamp(date: Date()),
             "lastMessageSenderId": senderId
         ])
+        
+        // Create notifications for other participants
+        do {
+            let conversationDoc = try await db.collection("conversations").document(conversationId).getDocument()
+            if let conversation = try? conversationDoc.data(as: Conversation.self) {
+                for participantId in conversation.participantIds where participantId != senderId {
+                    try await NotificationService.shared.createNotification(
+                        userId: participantId,
+                        type: .newMessage,
+                        title: "New Message",
+                        message: "\(senderName): \(text)",
+                        fromUserId: senderId,
+                        conversationId: conversationId
+                    )
+                }
+                print("✅ Message notifications sent")
+            }
+        } catch {
+            print("⚠️ Failed to create message notifications: \(error.localizedDescription)")
+        }
         
         return docRef.documentID
     }
