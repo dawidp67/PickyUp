@@ -16,22 +16,8 @@ struct GameMapPin: Identifiable {
     }
     
     var iconName: String {
-        switch game.sportType {
-        case .soccer:
-            return "figure.soccer"  // Changed from "soccerball"
-        case .basketball:
-            return "basketball.fill"
-        case .volleyball:
-            return "volleyball.fill"
-        case .tennis:
-            return "tennisball.fill"
-        case .football:
-            return "football.fill"
-        case .pickleball:
-            return "figure.pickleball"
-        case .other:
-            return "mappin.circle.fill"
-        }
+        // Use single source of truth
+        game.sportType.filledSystemIcon
     }
     
     var displayName: String {
@@ -76,7 +62,7 @@ struct MapView: View {
                         Text(pin.displayName)
                             .font(.caption)
                             .fontWeight(.medium)
-                            .foregroundColor(.black)  // ✅ Fixed: Changed to .black
+                            .foregroundColor(.black)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
                             .background(
@@ -150,3 +136,4 @@ struct MapView: View {
         gameViewModel.games.map { GameMapPin(game: $0) }
     }
 }
+

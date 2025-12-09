@@ -1,24 +1,39 @@
 //
-//  GameDetailView.swift (Updated)
+//  GameDetailView.swift (Updated with unified game pin style and user-centered button)
 //  PickyUp
 //
 
 import SwiftUI
 import MapKit
+import FirebaseFirestore
+import CoreLocation
 
 struct GameDetailView: View {
     let game: Game
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var authViewModel: AuthViewModel
+    
+    // Live-updating state
+    @State private var liveGame: Game?
     @State private var rsvps: [RSVP] = []
     @State private var userRSVP: RSVP?
+    
+    // Listeners
+    @State private var gameListener: ListenerRegistration?
+    @State private var rsvpListener: ListenerRegistration?
+    
     @State private var isLoading = false
     @State private var showingDeleteAlert = false
     @State private var showingEditGame = false
     @State private var selectedUser: User?
     
+    // Full-screen map
+    @State private var showFullMap = false
+    
+    var currentGame: Game { liveGame ?? game }
+    
     var isCreator: Bool {
-        game.creatorId == authViewModel.currentUser?.id
+        currentGame.creatorId == authViewModel.currentUser?.id
     }
     
     var goingCount: Int {
@@ -34,6 +49,9 @@ struct GameDetailView: View {
             ScrollView {
                 mainContent
             }
+            .refreshable {
+                await manualRefresh()
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -43,11 +61,14 @@ struct GameDetailView: View {
                 }
             }
             .sheet(isPresented: $showingEditGame) {
-                EditGameView(game: game)
+                EditGameView(game: currentGame)
             }
             .sheet(item: $selectedUser) { user in
                 UserProfileView(user: user)
                     .environmentObject(authViewModel)
+            }
+            .sheet(isPresented: $showFullMap) {
+                GameFullMapView(game: currentGame)
             }
             .alert("Delete Game?", isPresented: $showingDeleteAlert) {
                 Button("Cancel", role: .cancel) { }
@@ -60,8 +81,11 @@ struct GameDetailView: View {
                 Text("This will permanently delete this game and notify all attendees.")
             }
             .task {
-                await fetchRSVPs()
+                startListeners()
                 await fetchUserRSVP()
+            }
+            .onDisappear {
+                stopListeners()
             }
         }
     }
@@ -74,7 +98,7 @@ struct GameDetailView: View {
             Divider()
             locationSection
             
-            if let description = game.description, !description.isEmpty {
+            if let description = currentGame.description, !description.isEmpty {
                 Divider()
                 descriptionSection(description)
             }
@@ -98,20 +122,22 @@ struct GameDetailView: View {
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(game.sportType.icon)
+                // Unified icon in header
+                Image(systemName: currentGame.sportType.filledSystemIcon)
                     .font(.system(size: 50))
+                    .foregroundStyle(.blue)
                 
                 VStack(alignment: .leading) {
-                    Text(game.displaySportName)
+                    Text(currentGame.displayTitle)
                         .font(.title2)
                         .fontWeight(.bold)
                     
                     Button {
                         Task {
-                            await loadUser(userId: game.creatorId)
+                            await loadUser(userId: currentGame.creatorId)
                         }
                     } label: {
-                        Text("by \(game.creatorName)")
+                        Text("by \(currentGame.creatorName)")
                             .font(.subheadline)
                             .foregroundStyle(.blue)
                     }
@@ -137,9 +163,9 @@ struct GameDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             Label {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(game.dateTime.relativeDateString)
+                    Text(currentGame.dateTime.relativeDateString)
                         .font(.headline)
-                    Text(game.dateTime.timeString)
+                    Text(currentGame.dateTime.timeString)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -149,7 +175,7 @@ struct GameDetailView: View {
             }
             
             Label {
-                Text("\(game.duration) minutes")
+                Text("\(currentGame.duration) minutes")
             } icon: {
                 Image(systemName: "clock")
                     .foregroundStyle(.blue)
@@ -164,18 +190,44 @@ struct GameDetailView: View {
                 .font(.headline)
                 .foregroundStyle(.blue)
             
-            Text(game.location.address)
+            Text(currentGame.location.address)
                 .font(.subheadline)
             
-            Map(coordinateRegion: .constant(MKCoordinateRegion(
-                center: game.location.coordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
-            )), annotationItems: [game]) { game in
-                MapMarker(coordinate: game.location.coordinate, tint: .red)
+            // Tappable embedded map with unified game pin using sport icon
+            ZStack {
+                Map(coordinateRegion: .constant(MKCoordinateRegion(
+                    center: currentGame.location.coordinate,
+                    span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                )), annotationItems: [currentGame]) { game in
+                    MapAnnotation(coordinate: game.location.coordinate) {
+                        VStack(spacing: 4) {
+                            Image(systemName: game.sportType.filledSystemIcon)
+                                .foregroundColor(.white)
+                                .font(.system(size: 20, weight: .semibold))
+                                .frame(width: 44, height: 44)
+                                .background(
+                                    Circle()
+                                        .fill(Color.blue)
+                                )
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.white, lineWidth: 3)
+                                )
+                                .shadow(color: Color.black.opacity(0.3), radius: 4, x: 0, y: 2)
+                        }
+                        .accessibilityLabel("Game location pin")
+                    }
+                }
+                .frame(height: 200)
+                .cornerRadius(12)
+                
+                Rectangle()
+                    .foregroundStyle(.clear)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        showFullMap = true
+                    }
             }
-            .frame(height: 200)
-            .cornerRadius(12)
-            .allowsHitTesting(false)
         }
         .padding(.horizontal)
     }
@@ -305,6 +357,46 @@ struct GameDetailView: View {
         .padding(.horizontal)
     }
     
+    // MARK: - Live updates and refresh
+    
+    private func startListeners() {
+        guard let gameId = currentGame.id else { return }
+        gameListener?.remove()
+        gameListener = GameService.shared.listenToGame(gameId: gameId) { updated in
+            if let updated = updated {
+                Task { @MainActor in
+                    self.liveGame = updated
+                }
+            }
+        }
+        rsvpListener?.remove()
+        rsvpListener = RSVPService.shared.listenToRSVPs(gameId: gameId) { rsvps in
+            Task { @MainActor in
+                self.rsvps = rsvps
+            }
+        }
+    }
+    
+    private func stopListeners() {
+        gameListener?.remove()
+        gameListener = nil
+        rsvpListener?.remove()
+        rsvpListener = nil
+    }
+    
+    private func manualRefresh() async {
+        guard let gameId = currentGame.id else { return }
+        do {
+            let latest = try await GameService.shared.fetchGame(gameId: gameId)
+            await MainActor.run {
+                self.liveGame = latest
+            }
+        } catch {
+            // ignore
+        }
+        await fetchUserRSVP()
+    }
+    
     // MARK: - Functions
     
     func loadUser(userId: String) async {
@@ -316,17 +408,8 @@ struct GameDetailView: View {
         }
     }
     
-    func fetchRSVPs() async {
-        guard let gameId = game.id else { return }
-        do {
-            rsvps = try await RSVPService.shared.fetchRSVPs(gameId: gameId)
-        } catch {
-            print("Error fetching RSVPs: \(error)")
-        }
-    }
-    
     func fetchUserRSVP() async {
-        guard let gameId = game.id,
+        guard let gameId = currentGame.id,
               let userId = authViewModel.currentUser?.id else { return }
         do {
             userRSVP = try await RSVPService.shared.fetchUserRSVP(gameId: gameId, userId: userId)
@@ -336,7 +419,7 @@ struct GameDetailView: View {
     }
     
     func rsvpToGame(status: RSVPStatus) async {
-        guard let gameId = game.id,
+        guard let gameId = currentGame.id,
               let user = authViewModel.currentUser else { return }
         
         isLoading = true
@@ -347,7 +430,6 @@ struct GameDetailView: View {
                 userName: user.displayName,
                 status: status
             )
-            await fetchRSVPs()
             await fetchUserRSVP()
         } catch {
             print("Error RSVPing: \(error)")
@@ -356,13 +438,12 @@ struct GameDetailView: View {
     }
     
     func removeRSVP() async {
-        guard let gameId = game.id,
+        guard let gameId = currentGame.id,
               let userId = authViewModel.currentUser?.id else { return }
         
         isLoading = true
         do {
             try await RSVPService.shared.removeRSVP(gameId: gameId, userId: userId)
-            await fetchRSVPs()
             await fetchUserRSVP()
         } catch {
             print("Error removing RSVP: \(error)")
@@ -371,7 +452,7 @@ struct GameDetailView: View {
     }
     
     func deleteGame() async {
-        guard let gameId = game.id else { return }
+        guard let gameId = currentGame.id else { return }
         do {
             try await GameService.shared.deleteGame(gameId: gameId)
             dismiss()
@@ -380,3 +461,142 @@ struct GameDetailView: View {
         }
     }
 }
+
+// MARK: - Full-Screen Map View
+
+struct GameFullMapView: View {
+    let game: Game
+    @Environment(\.dismiss) var dismiss
+    @StateObject private var locationService = LocationService.shared
+    
+    @State private var region: MKCoordinateRegion
+    
+    init(game: Game) {
+        self.game = game
+        _region = State(initialValue: MKCoordinateRegion(
+            center: game.location.coordinate,
+            span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
+        ))
+    }
+    
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Map(coordinateRegion: $region,
+                    interactionModes: .all,
+                    showsUserLocation: true,
+                    annotationItems: [game]) { item in
+                    MapAnnotation(coordinate: item.location.coordinate) {
+                        VStack(spacing: 4) {
+                            Image(systemName: item.sportType.filledSystemIcon)
+                                .foregroundColor(.white)
+                                .font(.system(size: 20, weight: .semibold))
+                                .frame(width: 44, height: 44)
+                                .background(
+                                    Circle()
+                                        .fill(Color.blue)
+                                )
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.white, lineWidth: 3)
+                                )
+                                .shadow(color: Color.black.opacity(0.3), radius: 4, x: 0, y: 2)
+                        }
+                        .accessibilityLabel("Game location pin")
+                    }
+                }
+                .ignoresSafeArea()
+                
+                // Single floating location button (bottom trailing) — centers on USER location, sized like MapView
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button {
+                            centerOnUser()
+                        } label: {
+                            Image(systemName: "location.fill")
+                                .font(.system(size: 24, weight: .medium))
+                                .foregroundStyle(.white)
+                                .frame(width: 56, height: 56)
+                                .background(Color.blue)
+                                .clipShape(Circle())
+                                .shadow(color: Color.black.opacity(0.2), radius: 4, x: 0, y: 2)
+                        }
+                        .padding(.trailing, 16)
+                        .padding(.bottom, 16)
+                        .accessibilityLabel("Center on your location")
+                    }
+                }
+            }
+            .navigationTitle("Game Location")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .accessibilityLabel("Close")
+                }
+            }
+            .onAppear {
+                // Do not auto-center on game; leave as-is. User can center on themselves with the button.
+            }
+        }
+    }
+    
+    private func centerOnUser() {
+        if let userLoc = locationService.userLocation {
+            withAnimation {
+                region = MKCoordinateRegion(
+                    center: userLoc,
+                    span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
+                )
+            }
+        } else {
+            locationService.requestLocation()
+        }
+    }
+    
+    // These helpers remain available if needed elsewhere
+    private func centerOnGame() {
+        withAnimation {
+            region.center = game.location.coordinate
+            region.span = MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
+        }
+    }
+    
+    private func regionThatFits(points: [CLLocationCoordinate2D]) -> MKCoordinateRegion {
+        guard let first = points.first else {
+            return MKCoordinateRegion(center: game.location.coordinate,
+                                      span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02))
+        }
+        var minLat = first.latitude
+        var maxLat = first.latitude
+        var minLon = first.longitude
+        var maxLon = first.longitude
+        
+        for p in points.dropFirst() {
+            minLat = min(minLat, p.latitude)
+            maxLat = max(maxLat, p.latitude)
+            minLon = min(minLon, p.longitude)
+            maxLon = max(maxLon, p.longitude)
+        }
+        
+        let pad: CLLocationDegrees = 0.2
+        var spanLat = (maxLat - minLat) * (1.0 + pad)
+        var spanLon = (maxLon - minLon) * (1.0 + pad)
+        spanLat = max(spanLat, 0.01)
+        spanLon = max(spanLon, 0.01)
+        
+        let center = CLLocationCoordinate2D(
+            latitude: (minLat + maxLat) / 2.0,
+            longitude: (minLon + maxLon) / 2.0
+        )
+        return MKCoordinateRegion(center: center,
+                                  span: MKCoordinateSpan(latitudeDelta: spanLat, longitudeDelta: spanLon))
+    }
+}
+

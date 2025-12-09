@@ -13,7 +13,11 @@ struct GameListView: View {
     @State private var showingFilters = false
     
     var displayGames: [Game] {
-        gameViewModel.filteredGames.isEmpty && gameViewModel.selectedSportFilter == nil && gameViewModel.selectedSortOption == nil
+        gameViewModel.filteredGames.isEmpty
+        && gameViewModel.selectedSportFilter == nil
+        && gameViewModel.selectedDateSort == nil
+        && gameViewModel.selectedDistanceSort == nil
+        && gameViewModel.selectedAttendeesSort == nil
             ? gameViewModel.games
             : gameViewModel.filteredGames
     }
@@ -23,8 +27,14 @@ struct GameListView: View {
         if let sport = gameViewModel.selectedSportFilter {
             filters.append(sport.rawValue)
         }
-        if let sort = gameViewModel.selectedSortOption {
-            filters.append(sort.rawValue)
+        if let date = gameViewModel.selectedDateSort {
+            filters.append(date.rawValue)
+        }
+        if let distance = gameViewModel.selectedDistanceSort {
+            filters.append(distance.rawValue)
+        }
+        if let attendees = gameViewModel.selectedAttendeesSort {
+            filters.append(attendees == .most ? "Most attendees" : "Least attendees")
         }
         return filters
     }
@@ -128,6 +138,7 @@ struct FilterView: View {
     var body: some View {
         NavigationStack {
             List {
+                // Sport
                 Section("Sport") {
                     ForEach(SportType.allCases, id: \.self) { sport in
                         Button {
@@ -151,67 +162,63 @@ struct FilterView: View {
                     }
                 }
                 
-                Section("Location") {
-                    Button {
-                        gameViewModel.selectedSortOption = .nearest
-                        gameViewModel.applyFilters()
-                    } label: {
-                        HStack {
-                            Text("Closest")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            if gameViewModel.selectedSortOption == .nearest {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(.blue)
-                            }
-                        }
-                    }
+                // Date (single-choice)
+                Section("Date") {
+                    dateRow(option: .soonest, title: "Soonest")
+                    dateRow(option: .latest, title: "Latest")
                     
-                    Button {
-                        gameViewModel.selectedSortOption = .farthest
-                        gameViewModel.applyFilters()
-                    } label: {
-                        HStack {
-                            Text("Farthest")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            if gameViewModel.selectedSortOption == .farthest {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(.blue)
+                    if gameViewModel.selectedDateSort != nil {
+                        Button {
+                            gameViewModel.selectedDateSort = nil
+                            gameViewModel.applyFilters()
+                        } label: {
+                            HStack {
+                                Text("Clear Date")
+                                Spacer()
+                                Image(systemName: "xmark.circle")
                             }
                         }
+                        .foregroundStyle(.red)
                     }
                 }
                 
-                Section("Attendees") {
-                    Button {
-                        gameViewModel.selectedSortOption = .leastAttendees
-                        gameViewModel.applyFilters()
-                    } label: {
-                        HStack {
-                            Text("Lowest")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            if gameViewModel.selectedSortOption == .leastAttendees {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(.blue)
-                            }
-                        }
-                    }
+                // Distance (single-choice)
+                Section("Distance") {
+                    distanceRow(option: .nearest, title: "Closest")
+                    distanceRow(option: .farthest, title: "Farthest")
                     
-                    Button {
-                        gameViewModel.selectedSortOption = .mostAttendees
-                        gameViewModel.applyFilters()
-                    } label: {
-                        HStack {
-                            Text("Highest")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            if gameViewModel.selectedSortOption == .mostAttendees {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(.blue)
+                    if gameViewModel.selectedDistanceSort != nil {
+                        Button {
+                            gameViewModel.selectedDistanceSort = nil
+                            gameViewModel.applyFilters()
+                        } label: {
+                            HStack {
+                                Text("Clear Distance")
+                                Spacer()
+                                Image(systemName: "xmark.circle")
                             }
                         }
+                        .foregroundStyle(.red)
+                    }
+                }
+                
+                // Attendees (single-choice)
+                Section("Attendees") {
+                    attendeesRow(option: .most, title: "Most")
+                    attendeesRow(option: .least, title: "Least")
+                    
+                    if gameViewModel.selectedAttendeesSort != nil {
+                        Button {
+                            gameViewModel.selectedAttendeesSort = nil
+                            gameViewModel.applyFilters()
+                        } label: {
+                            HStack {
+                                Text("Clear Attendees")
+                                Spacer()
+                                Image(systemName: "xmark.circle")
+                            }
+                        }
+                        .foregroundStyle(.red)
                     }
                 }
             }
@@ -219,7 +226,7 @@ struct FilterView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Clear") {
+                    Button("Clear All") {
                         gameViewModel.clearFilters()
                     }
                 }
@@ -228,6 +235,69 @@ struct FilterView: View {
                     Button("Done") {
                         dismiss()
                     }
+                }
+            }
+        }
+    }
+    
+    private func dateRow(option: DateSortOption, title: String) -> some View {
+        Button {
+            if gameViewModel.selectedDateSort == option {
+                gameViewModel.selectedDateSort = nil
+            } else {
+                gameViewModel.selectedDateSort = option
+            }
+            gameViewModel.applyFilters()
+        } label: {
+            HStack {
+                Text(title)
+                    .foregroundStyle(.primary)
+                Spacer()
+                if gameViewModel.selectedDateSort == option {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(.blue)
+                }
+            }
+        }
+    }
+    
+    private func distanceRow(option: DistanceSortOption, title: String) -> some View {
+        Button {
+            if gameViewModel.selectedDistanceSort == option {
+                gameViewModel.selectedDistanceSort = nil
+            } else {
+                gameViewModel.selectedDistanceSort = option
+            }
+            gameViewModel.applyFilters()
+        } label: {
+            HStack {
+                Text(title)
+                    .foregroundStyle(.primary)
+                Spacer()
+                if gameViewModel.selectedDistanceSort == option {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(.blue)
+                }
+            }
+        }
+    }
+    
+    private func attendeesRow(option: AttendeesSortOption, title: String) -> some View {
+        Button {
+            if gameViewModel.selectedAttendeesSort == option {
+                gameViewModel.selectedAttendeesSort = nil
+            } else {
+                gameViewModel.selectedAttendeesSort = option
+            }
+            gameViewModel.applyFilters()
+        } label: {
+            HStack {
+                Text(title)
+                    .foregroundStyle(.primary)
+                Spacer()
+                if gameViewModel.selectedAttendeesSort == option {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(.blue)
                 }
             }
         }

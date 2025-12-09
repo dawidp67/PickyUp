@@ -13,6 +13,7 @@ struct LoginView: View {
     @State private var password = ""
     @State private var showingSignUp = false
     @State private var showingForgotPassword = false
+    @State private var localError: String?
     
     var body: some View {
         NavigationStack {
@@ -39,26 +40,36 @@ struct LoginView: View {
                         .background(Color(.systemGray6))
                         .cornerRadius(10)
                         .autocorrectionDisabled()
+                        .onChange(of: email) { _, _ in
+                            // Clear errors when user types
+                            localError = nil
+                            authViewModel.clearError()
+                        }
                     
                     SecureField("Password", text: $password)
                         .textContentType(.password)
                         .padding()
                         .background(Color(.systemGray6))
                         .cornerRadius(10)
+                        .onChange(of: password) { _, _ in
+                            // Clear errors when user types
+                            localError = nil
+                            authViewModel.clearError()
+                        }
                     
-                    if let error = authViewModel.errorMessage {
+                    // Display local validation errors or auth errors
+                    if let error = localError ?? authViewModel.errorMessage {
                         Text(error)
                             .font(.caption)
                             .foregroundStyle(.red)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal)
+                            .transition(.opacity)
                     }
                     
                     Button {
                         hideKeyboard()
-                        Task {
-                            await authViewModel.signIn(email: email.trimmingCharacters(in: .whitespaces), password: password)
-                        }
+                        handleLogin()
                     } label: {
                         if authViewModel.isLoading {
                             ProgressView()
@@ -73,10 +84,10 @@ struct LoginView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(email.isEmpty || password.isEmpty ? Color.gray : Color.blue)
+                    .background(isFormValid ? Color.blue : Color.gray)
                     .foregroundStyle(.white)
                     .cornerRadius(10)
-                    .disabled(authViewModel.isLoading || email.isEmpty || password.isEmpty)
+                    .disabled(authViewModel.isLoading || !isFormValid)
                     
                     Button {
                         showingForgotPassword = true
@@ -108,7 +119,50 @@ struct LoginView: View {
             }
             .onAppear {
                 authViewModel.clearError()
+                localError = nil
             }
         }
     }
+    
+    // MARK: - Validation
+    
+    private var isFormValid: Bool {
+        !email.trimmingCharacters(in: .whitespaces).isEmpty &&
+        !password.isEmpty &&
+        isValidEmail(email)
+    }
+    
+    private func isValidEmail(_ email: String) -> Bool {
+        let emailRegex = "[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,64}"
+        let emailPredicate = NSPredicate(format: "SELF MATCHES %@", emailRegex)
+        return emailPredicate.evaluate(with: email.trimmingCharacters(in: .whitespaces))
+    }
+    
+    private func handleLogin() {
+        // Clear any previous errors
+        localError = nil
+        authViewModel.clearError()
+        
+        // Trim whitespace
+        let trimmedEmail = email.trimmingCharacters(in: .whitespaces)
+        
+        // Validate email format
+        guard isValidEmail(trimmedEmail) else {
+            localError = "Please enter a valid email address"
+            return
+        }
+        
+        // Validate password length
+        guard password.count >= 6 else {
+            localError = "Password must be at least 6 characters"
+            return
+        }
+        
+        // Attempt sign in
+        Task {
+            await authViewModel.signIn(email: trimmedEmail, password: password)
+        }
+    }
 }
+
+

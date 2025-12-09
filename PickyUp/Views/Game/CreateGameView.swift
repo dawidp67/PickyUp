@@ -5,6 +5,7 @@
 //  Created by Dawid W. Pankiewicz on 10/24/25.
 //
 
+import Foundation
 import SwiftUI
 import MapKit
 
@@ -15,6 +16,7 @@ struct CreateGameView: View {
     
     @State private var sportType: SportType = .soccer
     @State private var customSportName = ""
+    @State private var customGameTitle = "" // <-- Added
     @State private var address = ""
     @State private var selectedLocation: GameLocation?
     @State private var showingMapPicker = false
@@ -38,6 +40,14 @@ struct CreateGameView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // Game Name (Optional)
+                Section("Game Name (Optional)") {
+                    TextField("e.g., Morning Run, 3v3 at the Park", text: $customGameTitle)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                }
+                
+                // Game Type
                 Section("Game Type") {
                     Picker("Sport", selection: $sportType) {
                         ForEach(SportType.allCases, id: \.self) { sport in
@@ -49,9 +59,11 @@ struct CreateGameView: View {
                     if sportType == .other {
                         TextField("Enter sport name", text: $customSportName)
                             .textInputAutocapitalization(.words)
+                            .autocorrectionDisabled()
                     }
                 }
                 
+                // When
                 Section("When") {
                     DatePicker("Date & Time", selection: $dateTime, in: Date()...)
                     
@@ -74,6 +86,7 @@ struct CreateGameView: View {
                     }
                 }
                 
+                // Where
                 Section("Where") {
                     TextField("Address or Location", text: $address)
                         .textInputAutocapitalization(.words)
@@ -91,6 +104,7 @@ struct CreateGameView: View {
                     }
                 }
                 
+                // Details
                 Section("Details (Optional)") {
                     TextField("Add any details...", text: $description, axis: .vertical)
                         .lineLimit(3...6)
@@ -107,7 +121,6 @@ struct CreateGameView: View {
             .navigationTitle("Create Game")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                // Keep a single close path: use Cancel on the leading side, remove extra X.
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()
@@ -132,7 +145,7 @@ struct CreateGameView: View {
     
     var isFormValid: Bool {
         let hasLocation = !address.isEmpty || selectedLocation != nil
-        let hasValidSport = sportType != .other || !customSportName.trimmingCharacters(in: .whitespaces).isEmpty
+        let hasValidSport = sportType != .other || !customSportName.trimmingCharacters(in: CharacterSet.whitespaces).isEmpty
         let hasValidDuration = !showCustomDuration || (!customDuration.isEmpty && Int(customDuration) ?? 0 > 0)
         
         return hasLocation && hasValidSport && hasValidDuration
@@ -152,9 +165,13 @@ struct CreateGameView: View {
                 location = try await LocationService.shared.geocodeAddress(address)
             }
             
+            let trimmedTitle = customGameTitle.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            let finalTitle = trimmedTitle.isEmpty ? nil : trimmedTitle
+            
             await gameViewModel.createGame(
                 sportType: sportType,
-                customSportName: sportType == .other ? customSportName.trimmingCharacters(in: .whitespaces) : nil,
+                customSportName: sportType == .other ? customSportName.trimmingCharacters(in: CharacterSet.whitespaces) : nil,
+                gameTitle: finalTitle, // requires GameViewModel.createGame to accept gameTitle: String?
                 location: location,
                 dateTime: dateTime,
                 duration: finalDuration,
@@ -205,7 +222,6 @@ struct MapPickerView: View {
                         .padding()
                 }
                 
-                // Crosshair in center
                 Circle()
                     .fill(Color.blue)
                     .frame(width: 8, height: 8)
@@ -217,7 +233,6 @@ struct MapPickerView: View {
             .navigationTitle("Select Location")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                // Keep Cancel/Done only; remove extra X to avoid duplicate close
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()
@@ -226,10 +241,7 @@ struct MapPickerView: View {
                 
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
-                        if isGeocodingAddress {
-                            return
-                        }
-                        
+                        if isGeocodingAddress { return }
                         Task {
                             isGeocodingAddress = true
                             do {
@@ -254,4 +266,3 @@ struct MapPickerView: View {
         }
     }
 }
-

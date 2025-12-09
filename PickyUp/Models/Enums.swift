@@ -11,6 +11,7 @@ enum SportType: String, Codable, CaseIterable {
     case pickleball = "Pickleball"
     case other = "Other"
     
+    // Emoji (kept for any textual contexts where you prefer emoji)
     var icon: String {
         switch self {
         case .soccer: return "⚽️"
@@ -19,10 +20,11 @@ enum SportType: String, Codable, CaseIterable {
         case .tennis: return "🎾"
         case .football: return "🏈"
         case .pickleball: return "🏓"
-        case .other: return "⚾️"
+        case .other: return "🏅"
         }
     }
     
+    // Legacy unfilled system icon (kept for backward compatibility if referenced anywhere)
     var systemIcon: String {
         switch self {
         case .soccer: return "soccerball"
@@ -32,6 +34,19 @@ enum SportType: String, Codable, CaseIterable {
         case .football: return "football"
         case .pickleball: return "pickleball"
         case .other: return "sportscourt"
+        }
+    }
+    
+    // New single source of truth for map/detail pins
+    var filledSystemIcon: String {
+        switch self {
+        case .soccer: return "figure.soccer"         // no soccerball.fill available
+        case .basketball: return "basketball.fill"
+        case .volleyball: return "volleyball.fill"
+        case .tennis: return "tennisball.fill"
+        case .football: return "football.fill"
+        case .pickleball: return "figure.pickleball"
+        case .other: return "mappin.circle.fill"
         }
     }
     
@@ -66,9 +81,27 @@ enum RSVPStatus: String, Codable {
     }
 }
 
+// Legacy single-axis sort (kept for backward compatibility)
 enum SortOption: String, CaseIterable {
     case nearest = "Closest"
     case farthest = "Farthest"
     case mostAttendees = "Highest"
     case leastAttendees = "Lowest"
 }
+
+// New, cleaner multi-axis sorting
+enum DistanceSortOption: String, CaseIterable {
+    case nearest = "Closest"
+    case farthest = "Farthest"
+}
+
+enum AttendeesSortOption: String, CaseIterable {
+    case most = "Most"
+    case least = "Least"
+}
+
+enum DateSortOption: String, CaseIterable {
+    case soonest = "Soonest"
+    case latest = "Latest"
+}
+

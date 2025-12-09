@@ -8,63 +8,111 @@ import UIKit
 import Firebase
 import Cloudinary
 
+extension Notification.Name {
+    static let didReceivePasswordResetLink = Notification.Name("didReceivePasswordResetLink")
+}
+
 class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         FirebaseApp.configure()
         return true
     }
+
+    // Universal Links (recommended path with Associated Domains)
+    func application(_ application: UIApplication,
+                     continue userActivity: NSUserActivity,
+                     restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
+        guard userActivity.activityType == NSUserActivityTypeBrowsingWeb,
+              let url = userActivity.webpageURL else {
+            return false
+        }
+
+        // Broadcast to SwiftUI
+        NotificationCenter.default.post(name: .didReceivePasswordResetLink, object: url)
+        return true
+    }
+
+    // Fallback: custom URL schemes if you later add one
+    func application(_ app: UIApplication,
+                     open url: URL,
+                     options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {
+        NotificationCenter.default.post(name: .didReceivePasswordResetLink, object: url)
+        return true
+    }
 }
 
-// MARK: - Cloudinary Manager (Unsigned upload, no forbidden params)
+// MARK: - Cloudinary Manager (Unsigned upload for development)
 class CloudinaryManager {
     static let shared = CloudinaryManager()
-    let cloudinary: CLDCloudinary
-    private let uploadPreset: String // Your unsigned upload preset ID
     
-    private init() {
-        let config = CLDConfiguration(
-            cloudName: "dzgxc4ri3"
-        )
-        self.cloudinary = CLDCloudinary(configuration: config)
-        self.uploadPreset = "iOS_uploads" // must be an UNSIGNED preset in your Cloudinary console
-    }
+    private let cloudName = "dzgxc4ri3"
+    private let uploadPreset = "iOS_uploads" // Your unsigned upload preset
     
-    // Upload raw Data to Cloudinary, returns secure URL
-    // For unsigned uploads: do not set publicId/overwrite/invalidate (usually rejected for unsigned presets)
-    func upload(data: Data, folder: String? = "profile_photos") async throws -> URL {
-        return try await withCheckedThrowingContinuation { continuation in
-            let params = CLDUploadRequestParams()
-                .setUploadPreset(uploadPreset)
-                .setUniqueFilename(true) // ensure Cloudinary generates a unique public_id
-            
-            if let folder {
-                _ = params.setFolder(folder)
-            }
-            
-            let request = cloudinary.createUploader()
-                .upload(data: data,
-                        uploadPreset: uploadPreset,
-                        params: params,
-                        progress: nil) { result, error in
-                    if let error = error {
-                        continuation.resume(throwing: error)
-                        return
-                    }
-                    guard let result = result,
-                          let secure = result.secureUrl,
-                          let url = URL(string: secure) else {
-                        let customError = NSError(
-                            domain: "CloudinaryManager",
-                            code: -2,
-                            userInfo: [NSLocalizedDescriptionKey: "Upload succeeded, but no secure URL was returned."]
-                        )
-                        continuation.resume(throwing: customError)
-                        return
-                    }
-                    continuation.resume(returning: url)
-                }
-            _ = request
+    private init() {}
+    
+    // Upload with unsigned preset (no signature needed)
+    // Note: publicId parameter is ignored for unsigned uploads, but accepted for compatibility
+    func upload(data: Data, publicId: String? = nil) async throws -> URL {
+        let url = URL(string: "https://api.cloudinary.com/v1_1/\(cloudName)/image/upload")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        
+        var body = Data()
+        
+        // Add upload preset (required for unsigned uploads)
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"upload_preset\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(uploadPreset)\r\n".data(using: .utf8)!)
+        
+        // Add folder parameter
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"folder\"\r\n\r\n".data(using: .utf8)!)
+        body.append("profile_photos\r\n".data(using: .utf8)!)
+        
+        // Add the file data
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"profile.jpg\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n".data(using: .utf8)!)
+        
+        // Close boundary
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        
+        request.httpBody = body
+        
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NSError(domain: "com.cloudinary.error", code: -1,
+                         userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
         }
+        
+        guard httpResponse.statusCode == 200 else {
+            // Parse error message from response
+            if let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+               let error = json["error"] as? [String: Any],
+               let message = error["message"] as? String {
+                print("Cloudinary error: \(message)")
+                throw NSError(domain: "com.cloudinary.error", code: httpResponse.statusCode,
+                             userInfo: ["statusCode": httpResponse.statusCode, "message": message])
+            }
+            throw NSError(domain: "com.cloudinary.error", code: httpResponse.statusCode,
+                         userInfo: ["statusCode": httpResponse.statusCode, "message": "Upload failed"])
+        }
+        
+        // Parse the response to get the secure URL
+        guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+              let secureUrl = json["secure_url"] as? String,
+              let url = URL(string: secureUrl) else {
+            throw NSError(domain: "com.cloudinary.error", code: -1,
+                         userInfo: [NSLocalizedDescriptionKey: "Failed to parse URL from response"])
+        }
+        
+        return url
     }
 }

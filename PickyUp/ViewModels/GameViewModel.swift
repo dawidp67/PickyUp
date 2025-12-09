@@ -14,12 +14,35 @@ class GameViewModel: ObservableObject {
     
     // Filter options
     @Published var selectedSportFilter: SportType?
-    @Published var selectedSortOption: SortOption?
+    
+    // Multi-axis sorting
+    @Published var selectedDateSort: DateSortOption? {
+        didSet { applyFilters() }
+    }
+    @Published var selectedDistanceSort: DistanceSortOption? {
+        didSet { applyFilters() }
+    }
+    @Published var selectedAttendeesSort: AttendeesSortOption? {
+        didSet { applyFilters() }
+    }
+    
+    // Legacy single sort (kept to avoid breaking call sites)
+    @Published var selectedSortOption: SortOption? {
+        didSet {
+            mapLegacySortToNewOptions()
+            applyFilters()
+        }
+    }
+    
     @Published var userLocation: CLLocationCoordinate2D? {
         didSet {
             applyFilters()
         }
     }
+    
+    // Cache of attendee counts (going only) by gameId
+    @Published private(set) var attendeeCountCache: [String: Int] = [:]
+    private var attendeeCountTasks: [String: Task<Void, Never>] = [:]
     
     private let gameService = GameService.shared
     private var gamesListener: ListenerRegistration?
@@ -30,6 +53,7 @@ class GameViewModel: ObservableObject {
     
     deinit {
         gamesListener?.remove()
+        attendeeCountTasks.values.forEach { $0.cancel() }
     }
     
     private func setupGamesListener() {
@@ -37,6 +61,7 @@ class GameViewModel: ObservableObject {
             Task { @MainActor in
                 self?.games = games
                 self?.applyFilters()
+                self?.prefetchAttendeeCounts(for: games)
             }
         }
     }
@@ -49,24 +74,68 @@ class GameViewModel: ObservableObject {
             result = result.filter { $0.sportType == sport }
         }
         
-        // Sort
-        if let sort = selectedSortOption {
-            switch sort {
-            case .nearest, .farthest:
-                if let userLoc = userLocation {
-                    result = result.sorted { game1, game2 in
-                        let dist1 = distance(from: userLoc, to: game1.location.coordinate)
-                        let dist2 = distance(from: userLoc, to: game2.location.coordinate)
-                        return sort == .nearest ? dist1 < dist2 : dist1 > dist2
+        // Multi-key comparator: Date -> Distance -> Attendees
+        if selectedDateSort != nil || selectedDistanceSort != nil || selectedAttendeesSort != nil {
+            let datePref = selectedDateSort
+            let distPref = selectedDistanceSort
+            let attPref = selectedAttendeesSort
+            let userLoc = userLocation
+            
+            result = result.sorted { g1, g2 in
+                if let datePref {
+                    let d1 = g1.dateTime
+                    let d2 = g2.dateTime
+                    if d1 != d2 {
+                        return datePref == .soonest ? d1 < d2 : d1 > d2
                     }
                 }
-            case .mostAttendees, .leastAttendees:
-                // Will be implemented when we fetch attendee counts
-                break
+                if let distPref, let userLoc {
+                    let d1 = distance(from: userLoc, to: g1.location.coordinate)
+                    let d2 = distance(from: userLoc, to: g2.location.coordinate)
+                    if d1 != d2 {
+                        return distPref == .nearest ? d1 < d2 : d1 > d2
+                    }
+                }
+                if let attPref {
+                    let c1 = attendeeCount(for: g1)
+                    let c2 = attendeeCount(for: g2)
+                    if c1 != c2 {
+                        return attPref == .most ? c1 > c2 : c1 < c2
+                    }
+                }
+                return g1.dateTime < g2.dateTime
             }
         }
         
         filteredGames = result
+        prefetchAttendeeCounts(for: result)
+    }
+    
+    private func attendeeCount(for game: Game) -> Int {
+        guard let id = game.id else { return 0 }
+        return attendeeCountCache[id] ?? 0
+    }
+    
+    private func prefetchAttendeeCounts(for games: [Game]) {
+        for game in games {
+            guard let id = game.id, attendeeCountCache[id] == nil, attendeeCountTasks[id] == nil else { continue }
+            let t = Task { [weak self] in
+                do {
+                    let counts = try await GameService.shared.fetchGameAttendeeCount(gameId: id)
+                    await MainActor.run {
+                        // Use going count; switch to counts.going + counts.maybe if desired
+                        self?.attendeeCountCache[id] = counts.going
+                        self?.applyFilters()
+                    }
+                } catch {
+                    // Ignore failures; default 0
+                }
+                await MainActor.run {
+                    self?.attendeeCountTasks[id] = nil
+                }
+            }
+            attendeeCountTasks[id] = t
+        }
     }
     
     func distance(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> Double {
@@ -78,12 +147,30 @@ class GameViewModel: ObservableObject {
     func clearFilters() {
         selectedSportFilter = nil
         selectedSortOption = nil
+        selectedDateSort = nil
+        selectedDistanceSort = nil
+        selectedAttendeesSort = nil
         applyFilters()
+    }
+    
+    private func mapLegacySortToNewOptions() {
+        guard let legacy = selectedSortOption else { return }
+        switch legacy {
+        case .nearest:
+            selectedDistanceSort = .nearest
+        case .farthest:
+            selectedDistanceSort = .farthest
+        case .mostAttendees:
+            selectedAttendeesSort = .most
+        case .leastAttendees:
+            selectedAttendeesSort = .least
+        }
     }
     
     func createGame(
         sportType: SportType,
         customSportName: String?,
+        gameTitle: String?,                 // ADDED
         location: GameLocation,
         dateTime: Date,
         duration: Int,
@@ -99,6 +186,7 @@ class GameViewModel: ObservableObject {
             creatorName: creatorName,
             sportType: sportType,
             customSportName: sportType == .other ? customSportName : nil,
+            gameTitle: gameTitle,            // ADDED
             location: location,
             dateTime: dateTime,
             duration: duration,
@@ -170,3 +258,4 @@ class GameViewModel: ObservableObject {
         isLoading = false
     }
 }
+

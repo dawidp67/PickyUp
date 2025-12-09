@@ -57,17 +57,50 @@ class AuthViewModel: ObservableObject {
     }
     
     func signIn(email: String, password: String) async {
-        isLoading = true
-        errorMessage = nil
-        
-        do {
-            try await authService.signIn(email: email, password: password)
-        } catch {
-            errorMessage = error.localizedDescription
+        await MainActor.run {
+            isLoading = true
+            errorMessage = nil
         }
         
-        isLoading = false
+        do {
+            let result = try await Auth.auth().signIn(withEmail: email, password: password)
+            
+            await MainActor.run {
+                isLoading = false
+            }
+            // Fetch user data after successful sign in
+            await fetchCurrentUser(userId: result.user.uid)
+        } catch {
+            await MainActor.run {
+                isLoading = false
+                
+                // Handle specific Firebase Auth errors
+                let nsError = error as NSError
+                let errorCode = AuthErrorCode(_bridgedNSError: nsError)
+                
+                switch errorCode?.code {
+                case .invalidEmail:
+                    errorMessage = "Invalid email address format"
+                case .wrongPassword:
+                    errorMessage = "Incorrect password. Please try again"
+                case .userNotFound:
+                    errorMessage = "No account found with this email"
+                case .userDisabled:
+                    errorMessage = "This account has been disabled"
+                case .tooManyRequests:
+                    errorMessage = "Too many failed attempts. Please try again later"
+                case .networkError:
+                    errorMessage = "Network error. Please check your connection"
+                case .invalidCredential:
+                    errorMessage = "Invalid credentials. Please check your email and password"
+                default:
+                    errorMessage = "Login failed: \(error.localizedDescription)"
+                }
+            }
+        }
     }
+    
+
     
     func signOut() {
         do {

@@ -20,7 +20,8 @@ struct Game: Codable, Identifiable, Hashable {
     var creatorId: String
     var creatorName: String
     var sportType: SportType
-    var customSportName: String?  // NEW: For "Other" sport type
+    var customSportName: String?  // For "Other" sport type
+    var gameTitle: String?        // Optional custom game name
     var location: GameLocation
     var dateTime: Date
     var duration: Int
@@ -29,11 +30,20 @@ struct Game: Codable, Identifiable, Hashable {
     var createdAt: Date
     var updatedAt: Date
     
+    // For "Other", show customSportName; else sportType name.
     var displaySportName: String {
-        if sportType == .other, let customName = customSportName {
+        if sportType == .other, let customName = customSportName, !customName.isEmpty {
             return customName
         }
         return sportType.rawValue
+    }
+    
+    // Prefer the custom gameTitle if present.
+    var displayTitle: String {
+        if let title = gameTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+            return title
+        }
+        return displaySportName
     }
     
     var isUpcoming: Bool {
@@ -56,3 +66,4 @@ struct Game: Codable, Identifiable, Hashable {
         lhs.id == rhs.id
     }
 }
+

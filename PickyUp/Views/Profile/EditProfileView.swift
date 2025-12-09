@@ -1,10 +1,3 @@
-//
-//  EditProfileView.swift
-//  PickyUp
-//
-//  Created by Dawid W. Pankiewicz on 10/24/25.
-//
-
 import SwiftUI
 import Cloudinary
 import PhotosUI
@@ -30,17 +23,18 @@ struct EditProfileView: View {
     
     // Photo state
     @State private var selectedPhotoItem: PhotosPickerItem?
-    @State private var selectedImageData: Data? // Final, cropped image data to display and upload
+    @State private var selectedImageData: Data?
     @State private var isUploadingPhoto = false
     @State private var uploadedPhotoURL: URL?
+    @State private var showPhotoLibrary = false
     
     // Camera State
     @State private var showingCamera = false
     
     // Cropping flow control
     @State private var isProcessingSelection = false
-    @State private var pendingImage: UIImage? // intermediate image from camera/library
-    @State private var cropItem: CropItem? // drives fullScreenCover(item:)
+    @State private var pendingImage: UIImage?
+    @State private var cropItem: CropItem?
     
     // Alerts
     @State private var showAlert = false
@@ -53,7 +47,6 @@ struct EditProfileView: View {
         static func == (lhs: CropItem, rhs: CropItem) -> Bool { lhs.id == rhs.id }
     }
     
-    // Remove profile photo (Firestore field delete)
     private func removeProfilePhoto() async {
         guard let userId = authViewModel.currentUser?.id else { return }
         
@@ -90,27 +83,38 @@ struct EditProfileView: View {
                             .overlay(Circle().stroke(Color.gray.opacity(0.2), lineWidth: 1))
                         
                         VStack(alignment: .leading, spacing: 8) {
-                            // Choose from library (PhotosPicker)
-                            PhotosPicker(selection: $selectedPhotoItem, matching: .images, photoLibrary: .shared()) {
-                                Label("Choose Photo", systemImage: "photo.on.rectangle")
-                            }
-                            .onChange(of: selectedPhotoItem) { _, newItem in
-                                Task { await loadSelectedPhoto(newItem) }
-                            }
-                            
-                            // Take photo with camera
-                            Button {
-                                Task { await requestCameraAndPresent() }
-                            } label: {
-                                Label("Take Photo", systemImage: "camera")
-                            }
-                            
-                            // Remove photo button (if photo exists)
-                            if uploadedPhotoURL != nil && !isUploadingPhoto {
-                                Button(role: .destructive) {
-                                    Task { await removeProfilePhoto() }
+                            // Profile Picture menu with all options
+                            Menu {
+                                // Choose from Library
+                                Button {
+                                    showPhotoLibrary = true
                                 } label: {
-                                    Label("Remove Photo", systemImage: "trash")
+                                    Label("Choose from Library", systemImage: "photo.on.rectangle")
+                                }
+                                
+                                // Take Photo
+                                Button {
+                                    Task { await requestCameraAndPresent() }
+                                } label: {
+                                    Label("Take Photo", systemImage: "camera")
+                                }
+                                
+                                // Remove Photo (only show if photo exists)
+                                if uploadedPhotoURL != nil && !isUploadingPhoto {
+                                    Divider()
+                                    
+                                    Button(role: .destructive) {
+                                        Task { await removeProfilePhoto() }
+                                    } label: {
+                                        Label("Remove Photo", systemImage: "trash")
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text("Profile Picture")
+                                    Image(systemName: "chevron.down")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
                                 }
                             }
                         }
@@ -263,10 +267,19 @@ struct EditProfileView: View {
                     uploadedPhotoURL = cacheBustedURL(from: baseURL)
                 }
             }
-            .sheet(isPresented: $showingCamera, onDismiss: {
-                if let img = pendingImage, cropItem == nil {
-                    cropItem = CropItem(image: img)
-                    pendingImage = nil
+            .photosPicker(isPresented: $showPhotoLibrary, selection: $selectedPhotoItem, matching: .images)
+            .onChange(of: selectedPhotoItem) { _, newItem in
+                if newItem != nil {
+                    showPhotoLibrary = false
+                }
+                Task { await loadSelectedPhoto(newItem) }
+            }
+            .fullScreenCover(isPresented: $showingCamera, onDismiss: {
+                if let img = pendingImage {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        cropItem = CropItem(image: img)
+                        pendingImage = nil
+                    }
                 }
             }) {
                 ImagePicker(sourceType: .camera, selectedImage: $pendingImage)
@@ -275,10 +288,14 @@ struct EditProfileView: View {
                 CircularImageCropperView(
                     image: item.image,
                     outputSize: 512,
-                    onCancel: { cropItem = nil },
+                    onCancel: {
+                        cropItem = nil
+                        pendingImage = nil
+                    },
                     onConfirm: { croppedData in
                         selectedImageData = croppedData
                         cropItem = nil
+                        pendingImage = nil
                         Task { await uploadProfilePhoto() }
                     }
                 )
@@ -291,7 +308,6 @@ struct EditProfileView: View {
         }
     }
     
-    // Helper to add a cache-busting query parameter to a URL
     private func cacheBustedURL(from url: URL) -> URL {
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false) ?? URLComponents()
         var items = components.queryItems ?? []
@@ -307,7 +323,7 @@ struct EditProfileView: View {
         #if targetEnvironment(simulator)
         await MainActor.run {
             alertTitle = "Camera Unavailable"
-            alertMessageText = "The iOS Simulator doesn’t have a camera. Please use a physical device, or choose a photo from your library."
+            alertMessageText = "The iOS Simulator doesn't have a camera. Please use a physical device, or choose a photo from your library."
             showAlert = true
         }
         return
@@ -391,7 +407,7 @@ struct EditProfileView: View {
         }
     }
     
-    // MARK: - Photo Handling Implementations
+    // MARK: - Photo Handling
     private func loadSelectedPhoto(_ item: PhotosPickerItem?) async {
         guard let item = item, !isProcessingSelection else { return }
         await MainActor.run { isProcessingSelection = true }
@@ -402,7 +418,7 @@ struct EditProfileView: View {
                let uiImage = UIImage(data: data) {
                 await MainActor.run {
                     cropItem = CropItem(image: uiImage)
-                    selectedPhotoItem = nil // Clear to avoid holding resources
+                    selectedPhotoItem = nil
                 }
             }
         } catch {
@@ -423,7 +439,6 @@ struct EditProfileView: View {
         successMessage = nil
         
         do {
-            // Optional: recompress to JPEG ~90%
             let imageData: Data
             if let uiImage = UIImage(data: data),
                let jpeg = uiImage.jpegData(compressionQuality: 0.9) {
@@ -432,21 +447,16 @@ struct EditProfileView: View {
                 imageData = data
             }
             
-            // Unsigned upload to Cloudinary; unique filename; folder = profile_photos
             let cleanURL = try await CloudinaryManager.shared.upload(data: imageData)
-            
-            // For immediate UI refresh, use a cache-busted URL locally
             let bustedURL = cacheBustedURL(from: cleanURL)
             uploadedPhotoURL = bustedURL
             
-            // Save the clean URL to Firestore
             try await UserService.shared.updateUser(userId: userId, updates: ["profilePhotoURL": cleanURL.absoluteString])
             
-            // Refresh current user locally (store clean URL)
             await MainActor.run {
                 authViewModel.currentUser?.profilePhotoURL = cleanURL.absoluteString
                 successMessage = "Profile photo updated!"
-                selectedImageData = nil // Clear local selection data AFTER successful upload
+                selectedImageData = nil
             }
         } catch {
             await MainActor.run {
@@ -459,7 +469,7 @@ struct EditProfileView: View {
         isUploadingPhoto = false
     }
     
-    // MARK: - Existing update methods
+    // MARK: - Update methods
     func updateDisplayName() async {
         guard !displayName.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         isUpdating = true
@@ -506,7 +516,7 @@ struct EditProfileView: View {
         isUpdating = false
     }
 
-    // MARK: - ImagePicker (for camera) -> returns UIImage to route through cropper
+    // MARK: - ImagePicker
     struct ImagePicker: UIViewControllerRepresentable {
         var sourceType: UIImagePickerController.SourceType
         @Binding var selectedImage: UIImage?
@@ -516,6 +526,7 @@ struct EditProfileView: View {
             let picker = UIImagePickerController()
             picker.sourceType = sourceType
             picker.delegate = context.coordinator
+            picker.allowsEditing = false
             return picker
         }
         
@@ -548,7 +559,7 @@ struct EditProfileView: View {
     // MARK: - Circular Image Cropper
     struct CircularImageCropperView: View {
         let image: UIImage
-        let outputSize: CGFloat // e.g., 512
+        let outputSize: CGFloat
         let onCancel: () -> Void
         let onConfirm: (Data) -> Void
         
@@ -557,22 +568,19 @@ struct EditProfileView: View {
         @State private var offset: CGSize = .zero
         @State private var lastDragOffset: CGSize = .zero
         
-        // Limits
         private let maxZoom: CGFloat = 5.0
         
         var body: some View {
             GeometryReader { geo in
                 let size = geo.size
-                let circleDiameter = min(size.width, size.height) - 48 // padding from edges
+                let circleDiameter = min(size.width, size.height) - 48
                 let circleRadius = circleDiameter / 2
                 let baseScale = circleDiameter / min(image.size.width, image.size.height)
                 let currentScale = max(1.0, min(zoomScale, maxZoom)) * baseScale
                 
                 ZStack {
-                    // Background
                     Color.black.ignoresSafeArea()
                     
-                    // Image with transforms
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
@@ -601,10 +609,8 @@ struct EditProfileView: View {
                             }
                         )
                     
-                    // Dimmed overlay with circular hole
                     overlayMask(circleDiameter: circleDiameter)
                     
-                    // Top and bottom controls
                     VStack {
                         HStack {
                             Button(role: .cancel) { onCancel() } label: {
@@ -700,7 +706,6 @@ struct EditProfileView: View {
         }
     }
     
-    // MARK: - Password Requirement view
     struct PasswordRequirement: View {
         let text: String
         let isMet: Bool
@@ -714,8 +719,3 @@ struct EditProfileView: View {
         }
     }
 }
-
-// NOTE: Add these to Info.plist if missing:
-// - NSCameraUsageDescription
-// - NSPhotoLibraryUsageDescription
-// - NSPhotoLibraryAddUsageDescription

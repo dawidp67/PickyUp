@@ -139,6 +139,24 @@ class GameService {
             }
     }
     
+    // NEW: Live listener for a single game
+    func listenToGame(gameId: String, completion: @escaping (Game?) -> Void) -> ListenerRegistration {
+        return db.collection("games").document(gameId)
+            .addSnapshotListener { snapshot, error in
+                if let error = error {
+                    print("Error listening to game \(gameId): \(error.localizedDescription)")
+                    completion(nil)
+                    return
+                }
+                guard let snapshot = snapshot else {
+                    completion(nil)
+                    return
+                }
+                let game = try? snapshot.data(as: Game.self)
+                completion(game)
+            }
+    }
+    
     func fetchGameAttendeeCount(gameId: String) async throws -> (going: Int, maybe: Int) {
         let snapshot = try await db.collection("rsvps")
             .whereField("gameId", isEqualTo: gameId)
@@ -151,3 +169,4 @@ class GameService {
         return (going, maybe)
     }
 }
+
